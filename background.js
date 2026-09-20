@@ -10,6 +10,7 @@ const initialState = {
   current: "",
   total: 0,
   completed: 0,
+  duplicatesSkipped: 0,
   errors: []
 };
 
@@ -71,11 +72,43 @@ function normalizeCourse(raw) {
   };
 }
 
+function getCourseIdFromUrl(url) {
+  try {
+    const parsed = new URL(url);
+    for (const key of ["classroom_id", "classroomId", "classroomID"]) {
+      const value = parsed.searchParams.get(key);
+      if (value) return String(value);
+    }
+
+    const hashQuery = parsed.hash.includes("?") ? parsed.hash.slice(parsed.hash.indexOf("?")) : "";
+    if (hashQuery) {
+      const hashParams = new URLSearchParams(hashQuery);
+      for (const key of ["classroom_id", "classroomId", "classroomID"]) {
+        const value = hashParams.get(key);
+        if (value) return String(value);
+      }
+    }
+
+    const pathMatch = parsed.pathname.match(
+      /\/(?:classrooms?|courses?|studentLog)\/(\d+)(?:\/|$)/i
+    );
+    if (pathMatch) return pathMatch[1];
+  } catch {}
+  return "";
+}
+
 async function scanCourses(tabId) {
+  const tab = await validateSiteTab(tabId);
   const response = await pageFetch(tabId, "/v2/api/web/courses/list?identity=2");
   const list = response?.data?.list;
   if (!Array.isArray(list)) throw new Error("未能读取课程列表，请确认账号已登录。 ");
-  return list.map(normalizeCourse).filter((course) => course.classroomId);
+  const currentId = getCourseIdFromUrl(tab.url || "");
+  const courses = list.map(normalizeCourse).filter((course) => course.classroomId);
+  for (const course of courses) {
+    course.isCurrent = String(course.classroomId) === currentId;
+  }
+  courses.sort((left, right) => Number(right.isCurrent) - Number(left.isCurrent));
+  return courses;
 }
 
 async function collectLessons(tabId, course) {
@@ -102,6 +135,24 @@ async function collectLessons(tabId, course) {
   return lessons;
 }
 
+function dedupePresentations(classroomId, rawIds, seenPresentations) {
+  const presentationIds = [...new Set(rawIds.filter(Boolean).map(String))];
+  const exportableIds = [];
+  let duplicateCount = 0;
+
+  for (const presentationId of presentationIds) {
+    const duplicateKey = `${classroomId}:${presentationId}`;
+    if (seenPresentations.has(duplicateKey)) {
+      duplicateCount += 1;
+      continue;
+    }
+    seenPresentations.add(duplicateKey);
+    exportableIds.push(presentationId);
+  }
+
+  return { exportableIds, duplicateCount };
+}
+
 async function collectJobs(tabId, courses) {
   const lessons = [];
   for (let index = 0; index < courses.length; index += 1) {
@@ -116,6 +167,8 @@ async function collectJobs(tabId, courses) {
   }
 
   const jobs = [];
+  const seenPresentations = new Set();
+  let duplicateCount = 0;
   for (let index = 0; index < lessons.length; index += 1) {
     if (cancelRequested) break;
     const lesson = lessons[index];
@@ -130,16 +183,30 @@ async function collectJobs(tabId, courses) {
         `/api/v3/classroom-report/student/review?lesson_id=${encodeURIComponent(lesson.lessonId)}`
       );
       const timeline = review?.data?.timelineList || [];
-      const presentationIds = [...new Set(
-        timeline.map((item) => item.presentationId || item.pres).filter(Boolean).map(String)
-      )];
-      presentationIds.forEach((presentationId) => jobs.push({ ...lesson, presentationId }));
+      const rawPresentationIds = timeline
+        .map((item) => item.presentationId || item.pres)
+        .filter(Boolean)
+        .map(String);
+      const deduped = dedupePresentations(
+        lesson.course.classroomId,
+        rawPresentationIds,
+        seenPresentations
+      );
+      duplicateCount += deduped.duplicateCount;
+      const { exportableIds } = deduped;
+
+      exportableIds.forEach((presentationId, presentationIndex) => jobs.push({
+        ...lesson,
+        presentationId,
+        presentationIndex: presentationIndex + 1,
+        presentationCount: exportableIds.length
+      }));
     } catch (error) {
       const state = await readState();
       await writeState({ errors: [...(state.errors || []), `${lesson.title}：${error.message}`] });
     }
   }
-  return jobs;
+  return { jobs, duplicateCount };
 }
 
 function sanitizeSegment(value, fallback = "未命名") {
@@ -275,7 +342,15 @@ async function exportJob(tabId, job) {
 
     const date = formatDate(job.createTime);
     const title = presentation.title || job.title;
-    const suffix = title === job.title ? "" : ` - ${title}`;
+    let suffix = "";
+    if (job.presentationCount > 1) {
+      const digits = Math.max(2, String(job.presentationCount).length);
+      const order = String(job.presentationIndex).padStart(digits, "0");
+      const presentationName = title === job.title ? "" : ` ${sanitizeSegment(title)}`;
+      suffix = ` - 课件 ${order}${presentationName}`;
+    } else if (title !== job.title) {
+      suffix = ` - ${title}`;
+    }
     const filename = [
       "雨课堂课件",
       sanitizeSegment(job.course.name),
@@ -296,17 +371,24 @@ async function runExport(tabId, courses) {
     current: "",
     total: 0,
     completed: 0,
+    duplicatesSkipped: 0,
     errors: [],
     error: ""
   });
 
   try {
-    const jobs = await collectJobs(tabId, courses);
+    const { jobs, duplicateCount } = await collectJobs(tabId, courses);
     if (cancelRequested) {
       await writeState({ status: "cancelled", label: "已停止" });
       return;
     }
-    await writeState({ status: "running", label: "正在导出", total: jobs.length, completed: 0 });
+    await writeState({
+      status: "running",
+      label: "正在导出",
+      total: jobs.length,
+      completed: 0,
+      duplicatesSkipped: duplicateCount
+    });
 
     for (let index = 0; index < jobs.length; index += 1) {
       if (cancelRequested) break;
@@ -314,7 +396,8 @@ async function runExport(tabId, courses) {
       await writeState({
         status: "running",
         label: "正在导出",
-        current: `${job.course.name} / ${job.title}`,
+        current: `${job.course.name} / ${job.title}` +
+          (job.presentationCount > 1 ? `（课件 ${job.presentationIndex}/${job.presentationCount}）` : ""),
         total: jobs.length,
         completed: index
       });

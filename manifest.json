@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "雨课堂课件批量导出",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "批量调用雨课堂现有的“打印课件”流程，将有权限访问的课堂课件导出为 PDF。",
   "permissions": [
     "debugger",

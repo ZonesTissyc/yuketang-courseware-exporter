@@ -211,6 +211,11 @@ button { -webkit-tap-highlight-color: transparent; }
 .course-item:has(input:focus-visible) { outline: 2px solid #1677ff; outline-offset: -2px; }
 .course-item.filtered-out { display: none; }
 
+.course-item.current-course {
+  box-shadow: inset 3px 0 #1677ff;
+  background: #f3f8ff;
+}
+
 .course-item input {
   width: 15px;
   height: 15px;
@@ -228,6 +233,27 @@ button { -webkit-tap-highlight-color: transparent; }
   line-height: 1.4;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.course-title-line {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 6px;
+}
+
+.course-title-line .course-name { min-width: 0; }
+
+.current-badge {
+  flex: 0 0 auto;
+  padding: 1px 5px;
+  border: 1px solid #a8cdf7;
+  border-radius: 3px;
+  color: #1769c2;
+  background: #ffffff;
+  font-size: 9px;
+  font-weight: 600;
+  line-height: 1.4;
 }
 
 .course-meta {
@@ -305,6 +331,13 @@ button { -webkit-tap-highlight-color: transparent; }
   line-height: 1.4;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.duplicate-summary {
+  margin: 6px 0 0;
+  color: #71767d;
+  font-size: 10px;
+  line-height: 1.4;
 }
 
 .error-details { margin-top: 8px; color: #9b3939; font-size: 11px; }

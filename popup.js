@@ -21,6 +21,7 @@ const progressCount = $("#progress-count");
 const progressBar = $("#progress-bar");
 const progressTrack = $(".progress-track");
 const currentItem = $("#current-item");
+const duplicateSummary = $("#duplicate-summary");
 const errorDetails = $("#error-details");
 const errorSummary = $("#error-summary");
 const errorMessage = $("#error-message");
@@ -86,6 +87,7 @@ function renderCourses(items) {
   for (const course of courses) {
     const label = document.createElement("label");
     label.className = "course-item";
+    label.classList.toggle("current-course", Boolean(course.isCurrent));
     label.dataset.search = `${course.name} ${course.term || ""}`.toLocaleLowerCase("zh-CN");
 
     const input = document.createElement("input");
@@ -96,14 +98,23 @@ function renderCourses(items) {
 
     const copy = document.createElement("div");
     copy.className = "course-copy";
+    const titleLine = document.createElement("div");
+    titleLine.className = "course-title-line";
     const name = document.createElement("div");
     name.className = "course-name";
     name.textContent = course.name;
     name.title = course.name;
+    titleLine.append(name);
+    if (course.isCurrent) {
+      const badge = document.createElement("span");
+      badge.className = "current-badge";
+      badge.textContent = "当前页面";
+      titleLine.append(badge);
+    }
     const meta = document.createElement("div");
     meta.className = "course-meta";
     meta.textContent = course.term || `课堂 ID：${course.classroomId}`;
-    copy.append(name, meta);
+    copy.append(titleLine, meta);
     label.append(input, copy);
     courseList.append(label);
   }
@@ -135,6 +146,9 @@ function renderProgress(state) {
   errorDetails.classList.toggle("hidden", errors.length === 0);
   errorSummary.textContent = `${errors.length} 项未能导出`;
   errorMessage.textContent = errors.at(-1) || "";
+  const duplicatesSkipped = Number(state.duplicatesSkipped || 0);
+  duplicateSummary.classList.toggle("hidden", duplicatesSkipped === 0);
+  duplicateSummary.textContent = `已按课件 ID 跳过 ${duplicatesSkipped} 个重复引用`;
 
   running = state.status === "running" || state.status === "scanning";
   exportButton.classList.toggle("hidden", running);
@@ -145,7 +159,8 @@ function renderProgress(state) {
   refreshSelection();
 
   if (state.status === "done") {
-    setNotice(`导出完成，共生成 ${state.completed} 个文件。`, errors.length ? "" : "ok");
+    const duplicateCopy = duplicatesSkipped ? `，跳过 ${duplicatesSkipped} 个重复引用` : "";
+    setNotice(`导出完成，共生成 ${state.completed} 个文件${duplicateCopy}。`, errors.length ? "" : "ok");
   } else if (state.status === "cancelled") {
     setNotice("导出任务已停止。", "");
   } else if (state.status === "error") {
@@ -165,7 +180,13 @@ async function scanCourses() {
     const result = await send({ type: "SCAN_COURSES", tabId: activeTab.id });
     if (!result?.ok) throw new Error(result?.error || "读取课程失败");
     renderCourses(result.courses);
-    setNotice("课程已就绪，可选择后开始导出。", "ok");
+    const currentCourse = result.courses.find((course) => course.isCurrent);
+    setNotice(
+      currentCourse
+        ? `当前课程“${currentCourse.name}”已置顶并标记。`
+        : "课程已就绪，可选择后开始导出。",
+      "ok"
+    );
   } catch (error) {
     loadingPanel.classList.add("hidden");
     setNotice(error.message, "error");
