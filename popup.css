@@ -40,18 +40,12 @@ button { -webkit-tap-highlight-color: transparent; }
   height: 34px;
   flex: 0 0 auto;
   place-items: center;
-  border-radius: 7px;
-  color: #ffffff;
-  background: #1677ff;
 }
 
-.app-icon svg {
-  width: 20px;
-  fill: none;
-  stroke: currentColor;
-  stroke-linecap: round;
-  stroke-linejoin: round;
-  stroke-width: 1.7;
+.app-icon img {
+  display: block;
+  width: 34px;
+  height: 34px;
 }
 
 .app-title { min-width: 0; }

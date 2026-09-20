@@ -3,6 +3,12 @@
   "name": "雨课堂课件批量导出",
   "version": "0.2.0",
   "description": "批量调用雨课堂现有的“打印课件”流程，将有权限访问的课堂课件导出为 PDF。",
+  "icons": {
+    "16": "icons/icon-16.png",
+    "32": "icons/icon-32.png",
+    "48": "icons/icon-48.png",
+    "128": "icons/icon-128.png"
+  },
   "permissions": [
     "debugger",
     "downloads",
@@ -19,6 +25,12 @@
   },
   "action": {
     "default_title": "雨课堂课件批量导出",
-    "default_popup": "popup.html"
+    "default_popup": "popup.html",
+    "default_icon": {
+      "16": "icons/icon-16.png",
+      "32": "icons/icon-32.png",
+      "48": "icons/icon-48.png",
+      "128": "icons/icon-128.png"
+    }
   }
 }
