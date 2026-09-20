@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>雨课堂课件批量导出</title>
+    <link rel="stylesheet" href="popup.css" />
+  </head>
+  <body>
+    <main>
+      <header>
+        <div class="mark">雨</div>
+        <div>
+          <h1>课件批量导出</h1>
+          <p>调用网站现有的“打印课件”流程</p>
+        </div>
+      </header>
+
+      <section id="notice" class="notice">请先打开并登录长江雨课堂。</section>
+
+      <section class="toolbar">
+        <button id="scan" class="primary">扫描课程</button>
+        <button id="select-all" disabled>全选</button>
+        <button id="select-none" disabled>清空</button>
+      </section>
+
+      <section id="course-panel" class="course-panel hidden">
+        <div class="panel-title">
+          <span>选择课程</span>
+          <span id="selected-count">0 门</span>
+        </div>
+        <div id="course-list" class="course-list"></div>
+      </section>
+
+      <section id="progress-panel" class="progress-panel hidden">
+        <div class="progress-line">
+          <span id="progress-label">准备中</span>
+          <span id="progress-count">0 / 0</span>
+        </div>
+        <div class="progress-track"><div id="progress-bar"></div></div>
+        <p id="current-item" class="current-item"></p>
+        <p id="error-summary" class="error-summary"></p>
+      </section>
+
+      <footer>
+        <button id="export" class="primary wide" disabled>批量导出为 PDF</button>
+        <button id="cancel" class="danger wide hidden">停止任务</button>
+        <p>仅导出当前账号正常可访问的课件；文件保存到浏览器下载目录。</p>
+      </footer>
+    </main>
+    <script src="popup.js"></script>
+  </body>
+</html>
