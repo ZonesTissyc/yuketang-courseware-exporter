@@ -3,49 +3,93 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>雨课堂课件批量导出</title>
+    <title>雨课堂课件导出器</title>
     <link rel="stylesheet" href="popup.css" />
   </head>
   <body>
-    <main>
-      <header>
-        <div class="mark">雨</div>
-        <div>
-          <h1>课件批量导出</h1>
-          <p>调用网站现有的“打印课件”流程</p>
+    <main class="app-shell">
+      <header class="app-header">
+        <div class="app-icon" aria-hidden="true">
+          <svg viewBox="0 0 24 24" role="img">
+            <path d="M6.5 5.5h11v13h-11z" />
+            <path d="M9 8.5h6M9 11.5h6M9 14.5h3.5" />
+          </svg>
+        </div>
+        <div class="app-title">
+          <h1>课件导出器</h1>
+          <p>长江雨课堂</p>
+        </div>
+        <div id="connection-status" class="connection-status" data-state="checking">
+          <span class="status-dot" aria-hidden="true"></span>
+          <span id="connection-text">检查中</span>
         </div>
       </header>
 
-      <section id="notice" class="notice">请先打开并登录长江雨课堂。</section>
-
-      <section class="toolbar">
-        <button id="scan" class="primary">扫描课程</button>
-        <button id="select-all" disabled>全选</button>
-        <button id="select-none" disabled>清空</button>
+      <section id="notice" class="notice" role="status" aria-live="polite">
+        正在检查当前页面…
       </section>
 
-      <section id="course-panel" class="course-panel hidden">
-        <div class="panel-title">
-          <span>选择课程</span>
-          <span id="selected-count">0 门</span>
+      <section id="course-panel" class="course-panel hidden" aria-labelledby="course-heading">
+        <div class="course-tools">
+          <label class="search-field">
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <circle cx="11" cy="11" r="6.5" />
+              <path d="m16 16 4 4" />
+            </svg>
+            <input id="course-search" type="search" placeholder="搜索课程" autocomplete="off" />
+          </label>
+          <button id="scan" class="icon-button" type="button" title="重新读取课程" aria-label="重新读取课程">
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M19 8a7 7 0 1 0 .3 7" />
+              <path d="M19 4v4h-4" />
+            </svg>
+          </button>
         </div>
+
+        <div class="list-heading">
+          <div>
+            <span id="course-heading">课程</span>
+            <span id="course-total" class="muted-count"></span>
+          </div>
+          <div class="selection-actions">
+            <button id="select-all" class="text-button" type="button" disabled>全选</button>
+            <span aria-hidden="true">·</span>
+            <button id="select-none" class="text-button" type="button" disabled>清空</button>
+          </div>
+        </div>
+
         <div id="course-list" class="course-list"></div>
+        <div id="no-results" class="empty-state hidden">没有找到匹配的课程</div>
       </section>
 
-      <section id="progress-panel" class="progress-panel hidden">
-        <div class="progress-line">
-          <span id="progress-label">准备中</span>
+      <section id="loading-panel" class="loading-panel">
+        <div class="loading-row"><span></span><span></span></div>
+        <div class="loading-row"><span></span><span></span></div>
+        <div class="loading-row"><span></span><span></span></div>
+      </section>
+
+      <section id="progress-panel" class="progress-panel hidden" aria-live="polite">
+        <div class="progress-heading">
+          <strong id="progress-label">准备中</strong>
           <span id="progress-count">0 / 0</span>
         </div>
-        <div class="progress-track"><div id="progress-bar"></div></div>
+        <div class="progress-track" role="progressbar" aria-label="导出进度">
+          <div id="progress-bar"></div>
+        </div>
         <p id="current-item" class="current-item"></p>
-        <p id="error-summary" class="error-summary"></p>
+        <details id="error-details" class="error-details hidden">
+          <summary id="error-summary"></summary>
+          <p id="error-message"></p>
+        </details>
       </section>
 
-      <footer>
-        <button id="export" class="primary wide" disabled>批量导出为 PDF</button>
-        <button id="cancel" class="danger wide hidden">停止任务</button>
-        <p>仅导出当前账号正常可访问的课件；文件保存到浏览器下载目录。</p>
+      <footer class="action-bar">
+        <div class="selection-copy">
+          <span>已选择</span>
+          <strong id="selected-count">0 门课程</strong>
+        </div>
+        <button id="export" class="primary-button" type="button" disabled>导出课件</button>
+        <button id="cancel" class="secondary-button hidden" type="button">停止任务</button>
       </footer>
     </main>
     <script src="popup.js"></script>
