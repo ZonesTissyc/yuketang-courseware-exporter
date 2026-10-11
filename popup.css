@@ -16,7 +16,8 @@ body {
 }
 
 button,
-input { font: inherit; }
+input,
+select { font: inherit; }
 
 button { -webkit-tap-highlight-color: transparent; }
 
@@ -49,14 +50,29 @@ button { -webkit-tap-highlight-color: transparent; }
 }
 
 .app-title { min-width: 0; }
+.app-title-row { display: flex; align-items: baseline; gap: 6px; }
 .app-title h1 { margin: 0; font-size: 15px; font-weight: 650; line-height: 1.3; }
 .app-title p { margin: 2px 0 0; color: #73777f; font-size: 11px; line-height: 1.2; }
+.extension-version { color: #8b9097; font-size: 9px; line-height: 1; white-space: nowrap; }
+
+.header-button {
+  margin-left: auto;
+  padding: 4px 8px;
+  border: 1px solid #d4d8dd;
+  border-radius: 5px;
+  color: #4e555d;
+  background: #ffffff;
+  font-size: 10px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.header-button:hover:not(:disabled) { border-color: #aeb5bd; background: #f6f7f8; }
+.header-button:disabled { cursor: default; opacity: 0.5; }
 
 .connection-status {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  margin-left: auto;
   color: #62666d;
   font-size: 11px;
   white-space: nowrap;
@@ -265,6 +281,149 @@ button { -webkit-tap-highlight-color: transparent; }
 }
 
 .lesson-item { min-height: 44px; }
+
+.feature-panel { padding: 18px 16px; }
+.feature-heading h2 { margin: 0; color: #2e3338; font-size: 14px; font-weight: 650; }
+.feature-heading p { margin: 5px 0 0; color: #7a8087; font-size: 11px; line-height: 1.45; }
+
+.feature-card {
+  display: block;
+  width: 100%;
+  position: relative;
+  margin-top: 14px;
+  padding: 14px;
+  border: 1px solid #dce3ec;
+  border-radius: 8px;
+  color: inherit;
+  background: linear-gradient(135deg, #f8fbff, #ffffff);
+  text-align: left;
+  cursor: pointer;
+}
+.feature-card:hover { border-color: #a8cdf7; background: #f3f8ff; }
+.feature-card-title { display: flex; align-items: center; gap: 7px; }
+.feature-card-title strong { color: #2c333a; font-size: 13px; font-weight: 650; }
+.beta-badge {
+  padding: 1px 6px;
+  border-radius: 999px;
+  color: #6c43b5;
+  background: #eee7fb;
+  font-size: 9px;
+  font-weight: 700;
+  line-height: 1.5;
+}
+.feature-card p { margin: 7px 0 0; color: #676e76; font-size: 11px; line-height: 1.45; }
+.feature-status {
+  display: inline-block;
+  margin-top: 10px;
+  color: #8a6b25;
+  font-size: 10px;
+}
+
+.archive-panel { padding: 15px 16px 18px; }
+.subpage-heading { padding-bottom: 12px; }
+.subpage-heading .text-button { margin-bottom: 10px; }
+.subpage-heading h2 { margin: 0; color: #2e3338; font-size: 14px; font-weight: 650; }
+.subpage-heading p { margin: 6px 0 0; color: #737981; font-size: 11px; line-height: 1.45; }
+
+.archive-tabs {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  margin-bottom: 12px;
+  padding: 3px;
+  border-radius: 7px;
+  background: #f0f2f4;
+}
+.archive-tab {
+  height: 30px;
+  border: 0;
+  border-radius: 5px;
+  color: #666d75;
+  background: transparent;
+  font-size: 11px;
+  cursor: pointer;
+}
+.archive-tab.active { color: #1769c2; background: #ffffff; box-shadow: 0 1px 3px rgba(35, 45, 55, 0.1); font-weight: 650; }
+
+.archive-filter-card {
+  padding: 13px;
+  border: 1px solid #e0e3e7;
+  border-radius: 8px;
+  background: #fafbfc;
+}
+.filter-heading { display: flex; align-items: baseline; justify-content: space-between; }
+.filter-heading strong { color: #353a40; font-size: 12px; }
+.filter-heading span { color: #8a9097; font-size: 10px; }
+.term-selectors { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 10px; }
+.term-selectors label,
+.archive-keyword-field { display: flex; flex-direction: column; gap: 5px; color: #666c73; font-size: 10px; }
+.term-selectors select,
+.archive-keyword-field input {
+  width: 100%;
+  height: 34px;
+  padding: 0 9px;
+  border: 1px solid #d4d8dd;
+  border-radius: 6px;
+  color: #30353a;
+  background: #ffffff;
+  font-size: 12px;
+}
+.term-selectors select:focus,
+.archive-keyword-field input:focus { border-color: #1677ff; outline: none; box-shadow: 0 0 0 2px rgba(22, 119, 255, 0.12); }
+.archive-keyword-field { margin-top: 10px; }
+.field-help { margin: 6px 0 10px; color: #8a9097; font-size: 9px; line-height: 1.4; }
+.full-width { width: 100%; }
+.archive-results { margin-top: 13px; border: 1px solid #e3e6e9; border-radius: 8px; overflow: hidden; }
+.archive-results .list-heading { padding: 10px 12px 7px; }
+.archive-results > .primary-button { width: calc(100% - 20px); margin: 10px; }
+.compact-list { max-height: 190px; }
+.compact-list .course-item { min-height: 46px; padding: 8px 12px; }
+.archive-list-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 8px; }
+.archive-list-toolbar p { margin: 0; color: #747a81; font-size: 10px; line-height: 1.4; }
+.course-item.archived-course-item {
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  cursor: default;
+}
+.archived-course-item .course-name {
+  display: -webkit-box;
+  overflow: hidden;
+  line-height: 1.45;
+  text-overflow: ellipsis;
+  white-space: normal;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+.restore-button {
+  width: 52px;
+  min-width: 52px;
+  padding: 5px 9px;
+  border: 1px solid #cbd6e5;
+  border-radius: 5px;
+  color: #1769c2;
+  background: #ffffff;
+  font-size: 10px;
+  cursor: pointer;
+}
+.restore-button:hover:not(:disabled) { background: #f3f8ff; }
+.restore-button:disabled { color: #999fa6; cursor: wait; }
+.archive-status { margin: 12px 0 0; padding: 8px 9px; border-left: 3px solid #aeb4bc; color: #555b64; background: #f6f7f8; font-size: 11px; line-height: 1.4; }
+.archive-status.ok { border-color: #2e9b62; color: #285b41; background: #f2f8f4; }
+.archive-status.error { border-color: #d95050; color: #873434; background: #fcf3f3; }
+
+.confirm-dialog {
+  width: 340px;
+  padding: 0;
+  border: 0;
+  border-radius: 9px;
+  box-shadow: 0 12px 40px rgba(24, 32, 40, 0.25);
+}
+.confirm-dialog::backdrop { background: rgba(25, 31, 38, 0.42); }
+.confirm-dialog form { padding: 18px; }
+.confirm-dialog h2 { margin: 0; color: #30353a; font-size: 15px; }
+.confirm-dialog p { margin: 8px 0 16px; color: #656b72; font-size: 11px; line-height: 1.5; }
+.dialog-actions { display: flex; justify-content: flex-end; gap: 8px; }
+.dialog-actions .primary-button,
+.dialog-actions .secondary-button { flex: 0 0 auto; }
 
 .list-heading {
   display: flex;

@@ -1,204 +1,23 @@
-const STATE_KEY = "exportState";
-const DIRECTORY_DB_NAME = "yuketang-courseware-exporter";
-const DIRECTORY_STORE_NAME = "settings";
-const DIRECTORY_HANDLE_KEY = "export-directory";
+import { formatDate, sanitizeSegment } from "./src/shared/format.js";
+import { getExportDirectoryHandle } from "./src/storage/directory-store.js";
+import {
+  TERMINAL_STATUSES,
+  readTaskState as readState,
+  resetTaskState as resetState,
+  writeTaskState as writeState
+} from "./src/storage/task-state.js";
+import {
+  collectLessons,
+  pageFetch,
+  scanArchivedCourses,
+  scanCourses,
+  scanLessons,
+  setCourseArchived,
+  validateSiteTab
+} from "./src/services/yuketang-api.js";
 
 let cancelRequested = false;
 let running = false;
-
-const initialState = {
-  status: "idle",
-  label: "",
-  current: "",
-  total: 0,
-  completed: 0,
-  exported: 0,
-  duplicatesSkipped: 0,
-  localDuplicatesSkipped: 0,
-  tabId: null,
-  startedAt: 0,
-  finishedAt: 0,
-  errors: []
-};
-
-const TERMINAL_STATUSES = new Set(["done", "error", "cancelled"]);
-
-function openDirectoryDatabase() {
-  return new Promise((resolve, reject) => {
-    const request = indexedDB.open(DIRECTORY_DB_NAME, 1);
-    request.onupgradeneeded = () => {
-      if (!request.result.objectStoreNames.contains(DIRECTORY_STORE_NAME)) {
-        request.result.createObjectStore(DIRECTORY_STORE_NAME);
-      }
-    };
-    request.onsuccess = () => resolve(request.result);
-    request.onerror = () => reject(request.error);
-  });
-}
-
-async function getExportDirectoryHandle() {
-  const database = await openDirectoryDatabase();
-  try {
-    return await new Promise((resolve, reject) => {
-      const request = database
-        .transaction(DIRECTORY_STORE_NAME, "readonly")
-        .objectStore(DIRECTORY_STORE_NAME)
-        .get(DIRECTORY_HANDLE_KEY);
-      request.onsuccess = () => resolve(request.result || null);
-      request.onerror = () => reject(request.error);
-    });
-  } finally {
-    database.close();
-  }
-}
-
-async function readState() {
-  const stored = await chrome.storage.local.get(STATE_KEY);
-  return stored[STATE_KEY] || initialState;
-}
-
-async function writeState(patch) {
-  const next = { ...(await readState()), ...patch, updatedAt: Date.now() };
-  await chrome.storage.local.set({ [STATE_KEY]: next });
-  return next;
-}
-
-async function resetState() {
-  const next = { ...initialState, updatedAt: Date.now() };
-  await chrome.storage.local.set({ [STATE_KEY]: next });
-  return next;
-}
-
-async function validateSiteTab(tabId) {
-  const tab = await chrome.tabs.get(tabId);
-  let parsed;
-  try {
-    parsed = new URL(tab.url || "");
-  } catch {}
-  const hostname = parsed?.hostname?.toLocaleLowerCase() || "";
-  const isYuketang = parsed?.protocol === "https:" &&
-    (hostname === "yuketang.cn" || hostname.endsWith(".yuketang.cn"));
-  if (!isYuketang) {
-    throw new Error("请保持一个已登录的雨课堂标签页打开。 ");
-  }
-  return tab;
-}
-
-async function pageFetch(tabId, path) {
-  await validateSiteTab(tabId);
-  const [execution] = await chrome.scripting.executeScript({
-    target: { tabId },
-    world: "MAIN",
-    args: [path],
-    func: async (requestPath) => {
-      try {
-        const response = await fetch(requestPath, { credentials: "include" });
-        const text = await response.text();
-        let data = null;
-        try { data = JSON.parse(text); } catch {}
-        return {
-          ok: response.ok,
-          status: response.status,
-          data,
-          preview: data ? "" : text.slice(0, 200)
-        };
-      } catch (error) {
-        return { ok: false, status: 0, error: String(error) };
-      }
-    }
-  });
-
-  const result = execution?.result;
-  if (!result?.ok) {
-    throw new Error(`请求失败 (${result?.status || "网络错误"})：${path}`);
-  }
-  return result.data;
-}
-
-function normalizeCourse(raw) {
-  return {
-    classroomId: raw.classroom_id ?? raw.id,
-    name: raw.name || raw.short_name || `课程 ${raw.classroom_id ?? raw.id}`,
-    term: raw.term || ""
-  };
-}
-
-function getCourseIdFromUrl(url) {
-  try {
-    const parsed = new URL(url);
-    for (const key of ["classroom_id", "classroomId", "classroomID"]) {
-      const value = parsed.searchParams.get(key);
-      if (value) return String(value);
-    }
-
-    const hashQuery = parsed.hash.includes("?") ? parsed.hash.slice(parsed.hash.indexOf("?")) : "";
-    if (hashQuery) {
-      const hashParams = new URLSearchParams(hashQuery);
-      for (const key of ["classroom_id", "classroomId", "classroomID"]) {
-        const value = hashParams.get(key);
-        if (value) return String(value);
-      }
-    }
-
-    const pathMatch = parsed.pathname.match(
-      /\/(?:classrooms?|courses?|studentLog)\/(\d+)(?:\/|$)/i
-    );
-    if (pathMatch) return pathMatch[1];
-  } catch {}
-  return "";
-}
-
-async function scanCourses(tabId) {
-  const tab = await validateSiteTab(tabId);
-  const response = await pageFetch(tabId, "/v2/api/web/courses/list?identity=2");
-  const list = response?.data?.list;
-  if (!Array.isArray(list)) throw new Error("未能读取课程列表，请确认账号已登录。 ");
-  const currentId = getCourseIdFromUrl(tab.url || "");
-  const courses = list.map(normalizeCourse).filter((course) => course.classroomId);
-  for (const course of courses) {
-    course.isCurrent = String(course.classroomId) === currentId;
-  }
-  courses.sort((left, right) => Number(right.isCurrent) - Number(left.isCurrent));
-  return courses;
-}
-
-async function collectLessons(tabId, course) {
-  const lessons = [];
-  const seen = new Set();
-  for (let page = 0; page < 100; page += 1) {
-    if (cancelRequested) break;
-    const path = `/v2/api/web/logs/learn/${encodeURIComponent(course.classroomId)}?actype=-1&page=${page}&offset=20&sort=-1`;
-    const response = await pageFetch(tabId, path);
-    const activities = response?.data?.activities || [];
-    for (const activity of activities) {
-      if (activity.type !== 14 || !activity.courseware_id || seen.has(String(activity.courseware_id))) continue;
-      seen.add(String(activity.courseware_id));
-      lessons.push({
-        course,
-        lessonId: String(activity.courseware_id),
-        activityId: activity.id,
-        title: activity.title || `课堂 ${activity.id}`,
-        createTime: activity.create_time || 0
-      });
-    }
-    if (!response?.data?.has_more || activities.length === 0) break;
-  }
-  return lessons;
-}
-
-async function scanLessons(tabId, course) {
-  cancelRequested = false;
-  const lessons = await collectLessons(tabId, {
-    classroomId: course?.classroomId,
-    name: course?.name
-  });
-  return lessons.map((lesson) => ({
-    lessonId: lesson.lessonId,
-    title: lesson.title,
-    createTime: lesson.createTime,
-    date: formatDate(lesson.createTime)
-  }));
-}
 
 function lessonInRange(lesson, dateFrom, dateTo) {
   if (!dateFrom && !dateTo) return true;
@@ -239,7 +58,7 @@ async function collectJobs(tabId, courses, filters = {}) {
       label: "正在扫描课堂",
       current: `${index + 1}/${courses.length} ${course.name}`
     });
-    for (const lesson of await collectLessons(tabId, course)) {
+    for (const lesson of await collectLessons(tabId, course, () => cancelRequested)) {
       if (allowedLessons && !allowedLessons.has(lesson.lessonId)) continue;
       if (!lessonInRange(lesson, dateFrom, dateTo)) continue;
       lessons.push(lesson);
@@ -287,22 +106,6 @@ async function collectJobs(tabId, courses, filters = {}) {
     }
   }
   return { jobs, duplicateCount };
-}
-
-function sanitizeSegment(value, fallback = "未命名") {
-  const cleaned = String(value || fallback)
-    .replace(/[<>:"/\\|?*\u0000-\u001f]/g, "_")
-    .replace(/[. ]+$/g, "")
-    .trim();
-  return (cleaned || fallback).slice(0, 100);
-}
-
-function formatDate(timestamp) {
-  if (!timestamp) return "";
-  const date = new Date(timestamp);
-  if (Number.isNaN(date.getTime())) return "";
-  const pad = (value) => String(value).padStart(2, "0");
-  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
 }
 
 async function setPrintPayload(tabId, payload) {
@@ -625,11 +428,47 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     return true;
   }
 
+  if (message?.type === "SCAN_ARCHIVED_COURSES") {
+    scanArchivedCourses(message.tabId)
+      .then((courses) => sendResponse({ ok: true, courses }))
+      .catch((error) => sendResponse({ ok: false, error: error.message }));
+    return true;
+  }
+
+  if (message?.type === "SET_COURSE_ARCHIVED") {
+    if (running) {
+      sendResponse({ ok: false, error: "课件导出期间不能修改课程归档。" });
+      return false;
+    }
+    const classroomIds = Array.isArray(message.classroomIds)
+      ? [...new Set(message.classroomIds.map(String).filter(Boolean))]
+      : [];
+    if (!classroomIds.length) {
+      sendResponse({ ok: false, error: "请至少选择一门课程。" });
+      return false;
+    }
+    (async () => {
+      const failures = [];
+      let completed = 0;
+      for (const classroomId of classroomIds) {
+        try {
+          await setCourseArchived(message.tabId, classroomId, Boolean(message.archived));
+          completed += 1;
+        } catch (error) {
+          failures.push({ classroomId, error: error.message });
+        }
+      }
+      sendResponse({ ok: failures.length === 0, completed, failures });
+    })().catch((error) => sendResponse({ ok: false, error: error.message }));
+    return true;
+  }
+
   if (message?.type === "SCAN_LESSONS") {
     if (running) {
       sendResponse({ ok: false, error: "已有导出任务正在运行。" });
       return false;
     }
+    cancelRequested = false;
     scanLessons(message.tabId, message.course)
       .then((lessons) => sendResponse({ ok: true, lessons }))
       .catch((error) => sendResponse({ ok: false, error: error.message }));

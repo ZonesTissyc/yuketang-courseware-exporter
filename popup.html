@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>雨课堂课件导出器</title>
+    <title>雨课堂工具助手</title>
     <link rel="stylesheet" href="popup.css" />
   </head>
   <body>
@@ -13,9 +13,13 @@
           <img src="icons/icon-32.png" alt="" />
         </div>
         <div class="app-title">
-          <h1>课件导出器</h1>
+          <div class="app-title-row">
+            <h1>雨课堂工具助手</h1>
+            <span id="extension-version" class="extension-version"></span>
+          </div>
           <p id="platform-name">雨课堂</p>
         </div>
+        <button id="feature-toggle" class="header-button" type="button" disabled>其他功能</button>
         <div id="connection-status" class="connection-status" data-state="checking">
           <span class="status-dot" aria-hidden="true"></span>
           <span id="connection-text">检查中</span>
@@ -116,6 +120,95 @@
         <div id="lesson-empty" class="empty-state hidden">当前日期范围内没有课件</div>
       </section>
 
+      <section id="feature-panel" class="feature-panel hidden" aria-labelledby="feature-heading">
+        <div class="feature-heading">
+          <h2 id="feature-heading">其他功能</h2>
+          <p>更多雨课堂辅助能力会在这里陆续提供。</p>
+        </div>
+        <button id="open-course-archive" class="feature-card" type="button" aria-labelledby="archive-feature-name">
+          <div class="feature-card-title">
+            <strong id="archive-feature-name">课程归档</strong>
+            <span class="beta-badge">Beta</span>
+          </div>
+          <p>按课程名称筛选，将旧课程从首页移入“我的归档”。</p>
+          <span class="feature-status">进入功能</span>
+        </button>
+      </section>
+
+      <section id="archive-panel" class="archive-panel hidden" aria-labelledby="archive-heading">
+        <div class="subpage-heading">
+          <button id="archive-back" class="text-button" type="button">← 其他功能</button>
+          <div class="feature-card-title">
+            <h2 id="archive-heading">课程归档</h2>
+            <span class="beta-badge">Beta</span>
+          </div>
+          <p>归档后课程将不再显示在雨课堂首页，可随时恢复。</p>
+        </div>
+
+        <div class="archive-tabs" role="tablist" aria-label="课程归档页面">
+          <button id="archive-add-tab" class="archive-tab active" type="button" role="tab" aria-selected="true">添加归档</button>
+          <button id="archive-list-tab" class="archive-tab" type="button" role="tab" aria-selected="false">我的归档</button>
+        </div>
+
+        <div id="archive-add-view" class="archive-view">
+          <div class="archive-filter-card">
+            <div class="filter-heading">
+              <strong>按时间关键词</strong>
+              <span>默认定位上一学期</span>
+            </div>
+            <div class="term-selectors">
+              <label>
+                <span>年份</span>
+                <select id="archive-year"></select>
+              </label>
+              <label>
+                <span>季度</span>
+                <select id="archive-season">
+                  <option value="春">春</option>
+                  <option value="夏">夏</option>
+                  <option value="秋">秋</option>
+                  <option value="冬">冬</option>
+                </select>
+              </label>
+            </div>
+            <label class="archive-keyword-field">
+              <span>自定义关键词</span>
+              <input id="archive-keyword" type="text" placeholder="输入课程名称中的关键词" autocomplete="off" />
+            </label>
+            <p class="field-help">修改自定义关键词后，年份和季度选择将自动清空。</p>
+            <button id="archive-match" class="primary-button full-width" type="button">添加至我的归档</button>
+          </div>
+
+          <section id="archive-results" class="archive-results hidden" aria-labelledby="archive-results-heading">
+            <div class="list-heading">
+              <div>
+                <span id="archive-results-heading">匹配课程</span>
+                <span id="archive-match-count" class="muted-count"></span>
+              </div>
+              <div class="selection-actions">
+                <button id="archive-select-all" class="text-button" type="button">全选</button>
+                <span aria-hidden="true">·</span>
+                <button id="archive-select-none" class="text-button" type="button">清空</button>
+              </div>
+            </div>
+            <div id="archive-match-list" class="course-list compact-list"></div>
+            <div id="archive-no-match" class="empty-state hidden">没有课程命中当前关键词</div>
+            <button id="archive-submit" class="primary-button full-width" type="button" disabled>归档</button>
+          </section>
+        </div>
+
+        <div id="archive-list-view" class="archive-view hidden">
+          <div class="archive-list-toolbar">
+            <p>这里的课程不会显示在雨课堂首页。</p>
+            <button id="archive-refresh" class="small-button" type="button">刷新</button>
+          </div>
+          <div id="archived-course-list" class="course-list compact-list"></div>
+          <div id="archive-list-empty" class="empty-state hidden">“我的归档”中暂无课程</div>
+        </div>
+
+        <p id="archive-status" class="archive-status hidden" role="status" aria-live="polite"></p>
+      </section>
+
       <section id="loading-panel" class="loading-panel">
         <div class="loading-row"><span></span><span></span></div>
         <div class="loading-row"><span></span><span></span></div>
@@ -139,7 +232,7 @@
         </details>
       </section>
 
-      <footer class="action-bar">
+      <footer id="action-bar" class="action-bar">
         <div class="selection-copy">
           <span id="selection-label">已选择</span>
           <strong id="selected-count">0 门课程</strong>
@@ -148,7 +241,18 @@
         <button id="export" class="primary-button" type="button" disabled>导出课件</button>
         <button id="cancel" class="secondary-button hidden" type="button">停止任务</button>
       </footer>
+
+      <dialog id="archive-confirm-dialog" class="confirm-dialog">
+        <form method="dialog">
+          <h2>确认归档课程？</h2>
+          <p id="archive-confirm-copy"></p>
+          <div class="dialog-actions">
+            <button class="secondary-button" value="cancel">取消</button>
+            <button id="archive-confirm" class="primary-button" value="confirm">确认归档</button>
+          </div>
+        </form>
+      </dialog>
     </main>
-    <script src="popup.js"></script>
+    <script type="module" src="popup.js"></script>
   </body>
 </html>

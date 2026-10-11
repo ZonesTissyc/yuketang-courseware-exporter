@@ -1,17 +1,53 @@
+import { getPlatformName, parseYuketangUrl } from "./src/shared/platform.js";
+import {
+  getExportDirectoryHandle,
+  saveExportDirectoryHandle
+} from "./src/storage/directory-store.js";
+import {
+  COURSE_SEASONS,
+  archiveKeyword,
+  archiveYearOptions,
+  defaultArchiveTerm,
+  filterCoursesByKeyword
+} from "./src/features/course-archive.js";
+
 const $ = (selector) => document.querySelector(selector);
-const DIRECTORY_DB_NAME = "yuketang-courseware-exporter";
-const DIRECTORY_STORE_NAME = "settings";
-const DIRECTORY_HANDLE_KEY = "export-directory";
 
 const notice = $("#notice");
 const scanButton = $("#scan");
 const exportButton = $("#export");
 const cancelButton = $("#cancel");
+const featureToggleButton = $("#feature-toggle");
 const selectAllButton = $("#select-all");
 const selectNoneButton = $("#select-none");
 const coursePanel = $("#course-panel");
 const courseList = $("#course-list");
 const lessonPanel = $("#lesson-panel");
+const featurePanel = $("#feature-panel");
+const archivePanel = $("#archive-panel");
+const openCourseArchiveButton = $("#open-course-archive");
+const archiveBackButton = $("#archive-back");
+const archiveAddTab = $("#archive-add-tab");
+const archiveListTab = $("#archive-list-tab");
+const archiveAddView = $("#archive-add-view");
+const archiveListView = $("#archive-list-view");
+const archiveYearSelect = $("#archive-year");
+const archiveSeasonSelect = $("#archive-season");
+const archiveKeywordInput = $("#archive-keyword");
+const archiveMatchButton = $("#archive-match");
+const archiveResults = $("#archive-results");
+const archiveMatchCount = $("#archive-match-count");
+const archiveMatchList = $("#archive-match-list");
+const archiveNoMatch = $("#archive-no-match");
+const archiveSelectAllButton = $("#archive-select-all");
+const archiveSelectNoneButton = $("#archive-select-none");
+const archiveSubmitButton = $("#archive-submit");
+const archivedCourseList = $("#archived-course-list");
+const archiveListEmpty = $("#archive-list-empty");
+const archiveRefreshButton = $("#archive-refresh");
+const archiveStatus = $("#archive-status");
+const archiveConfirmDialog = $("#archive-confirm-dialog");
+const archiveConfirmCopy = $("#archive-confirm-copy");
 const lessonList = $("#lesson-list");
 const lessonListHeading = $("#lesson-list-heading");
 const lessonSelectionActions = $("#lesson-selection-actions");
@@ -27,6 +63,7 @@ const chooseDirectoryButton = $("#choose-directory");
 const directoryName = $("#directory-name");
 const duplicateModeInputs = [...document.querySelectorAll('input[name="duplicate-mode"]')];
 const backButton = $("#back");
+const actionBar = $("#action-bar");
 const selectionLabel = $("#selection-label");
 const courseSearch = $("#course-search");
 const courseTotal = $("#course-total");
@@ -35,6 +72,7 @@ const selectedCount = $("#selected-count");
 const loadingPanel = $("#loading-panel");
 const connectionStatus = $("#connection-status");
 const connectionText = $("#connection-text");
+const extensionVersion = $("#extension-version");
 const platformName = $("#platform-name");
 const compatibilityWarning = $("#compatibility-warning");
 const progressPanel = $("#progress-panel");
@@ -53,64 +91,17 @@ let activeTab = null;
 let courses = [];
 let running = false;
 let phase = "courses";
+let featureReturnPhase = "courses";
 let pendingCourses = [];
 let lessons = [];
 let lessonCheckedCount = 0;
 let exportDirectoryHandle = null;
-
-const PLATFORM_NAMES = {
-  "www.yuketang.cn": "普通雨课堂",
-  "pro.yuketang.cn": "荷塘雨课堂",
-  "huanghe.yuketang.cn": "黄河雨课堂",
-  "changjiang.yuketang.cn": "长江雨课堂"
-};
-
-function openDirectoryDatabase() {
-  return new Promise((resolve, reject) => {
-    const request = indexedDB.open(DIRECTORY_DB_NAME, 1);
-    request.onupgradeneeded = () => {
-      if (!request.result.objectStoreNames.contains(DIRECTORY_STORE_NAME)) {
-        request.result.createObjectStore(DIRECTORY_STORE_NAME);
-      }
-    };
-    request.onsuccess = () => resolve(request.result);
-    request.onerror = () => reject(request.error);
-  });
-}
-
-async function readDirectoryHandle() {
-  const database = await openDirectoryDatabase();
-  try {
-    return await new Promise((resolve, reject) => {
-      const request = database
-        .transaction(DIRECTORY_STORE_NAME, "readonly")
-        .objectStore(DIRECTORY_STORE_NAME)
-        .get(DIRECTORY_HANDLE_KEY);
-      request.onsuccess = () => resolve(request.result || null);
-      request.onerror = () => reject(request.error);
-    });
-  } finally {
-    database.close();
-  }
-}
-
-async function saveDirectoryHandle(handle) {
-  const database = await openDirectoryDatabase();
-  try {
-    await new Promise((resolve, reject) => {
-      const transaction = database.transaction(DIRECTORY_STORE_NAME, "readwrite");
-      transaction.objectStore(DIRECTORY_STORE_NAME).put(handle, DIRECTORY_HANDLE_KEY);
-      transaction.oncomplete = () => resolve();
-      transaction.onerror = () => reject(transaction.error);
-      transaction.onabort = () => reject(transaction.error);
-    });
-  } finally {
-    database.close();
-  }
-}
+let archiveMatches = [];
+let archivedCourses = [];
+let archiveBusy = false;
 
 async function refreshDirectoryStatus() {
-  exportDirectoryHandle = exportDirectoryHandle || await readDirectoryHandle();
+  exportDirectoryHandle = exportDirectoryHandle || await getExportDirectoryHandle();
   if (!exportDirectoryHandle) {
     directoryName.textContent = "尚未选择课件文件夹";
     directoryName.dataset.state = "missing";
@@ -148,7 +139,7 @@ async function chooseExportDirectory() {
     startIn: "downloads"
   });
   exportDirectoryHandle = handle;
-  await saveDirectoryHandle(handle);
+  await saveExportDirectoryHandle(handle);
   await refreshDirectoryStatus();
 }
 
@@ -212,13 +203,23 @@ function refreshSelection() {
 }
 
 function setPhase(next) {
+  const featurePhases = new Set(["features", "archive"]);
+  if (featurePhases.has(next) && !featurePhases.has(phase)) featureReturnPhase = phase;
+  if (!featurePhases.has(next)) featureReturnPhase = next;
   phase = next;
   coursePanel.classList.toggle("hidden", next !== "courses");
   lessonPanel.classList.toggle("hidden", next !== "lessons");
+  featurePanel.classList.toggle("hidden", next !== "features");
+  archivePanel.classList.toggle("hidden", next !== "archive");
+  notice.classList.toggle("hidden", featurePhases.has(next));
+  featureToggleButton.textContent = featurePhases.has(next) ? "返回课件" : "其他功能";
   refreshFooter();
 }
 
 function refreshFooter() {
+  const featurePhase = phase === "features" || phase === "archive";
+  actionBar.classList.toggle("hidden", featurePhase);
+  if (featurePhase) return;
   backButton.classList.toggle("hidden", phase !== "lessons" || running);
   if (phase !== "lessons") {
     refreshSelection();
@@ -293,12 +294,248 @@ function renderCourses(items) {
   }
 
   loadingPanel.classList.add("hidden");
-  coursePanel.classList.remove("hidden");
+  coursePanel.classList.toggle("hidden", phase !== "courses");
   selectAllButton.disabled = false;
   selectNoneButton.disabled = false;
   courseSearch.value = currentCourse ? currentCourse.name : "";
   filterCourses();
   refreshFooter();
+}
+
+function setArchiveStatus(message = "", type = "") {
+  archiveStatus.textContent = message;
+  archiveStatus.className = `archive-status${message ? "" : " hidden"}${type ? ` ${type}` : ""}`;
+}
+
+function populateArchiveYears() {
+  archiveYearSelect.replaceChildren();
+  const blank = document.createElement("option");
+  blank.value = "";
+  blank.textContent = "未选择";
+  archiveYearSelect.append(blank);
+  for (const year of archiveYearOptions()) {
+    const option = document.createElement("option");
+    option.value = String(year);
+    option.textContent = `${year}年`;
+    archiveYearSelect.append(option);
+  }
+
+  if (!archiveSeasonSelect.querySelector('option[value=""]')) {
+    const seasonBlank = document.createElement("option");
+    seasonBlank.value = "";
+    seasonBlank.textContent = "未选择";
+    archiveSeasonSelect.prepend(seasonBlank);
+  }
+}
+
+function resetArchiveFilter() {
+  populateArchiveYears();
+  const term = defaultArchiveTerm(courses);
+  archiveYearSelect.value = String(term.year);
+  archiveSeasonSelect.value = term.season;
+  archiveKeywordInput.value = archiveKeyword(term.year, term.season);
+  archiveMatches = [];
+  archiveResults.classList.add("hidden");
+  archiveMatchList.replaceChildren();
+  setArchiveStatus();
+}
+
+function syncArchiveKeywordFromTerm() {
+  archiveKeywordInput.value = archiveKeyword(
+    archiveYearSelect.value,
+    archiveSeasonSelect.value
+  );
+  archiveResults.classList.add("hidden");
+  setArchiveStatus();
+}
+
+function checkedArchiveMatches() {
+  return [...archiveMatchList.querySelectorAll("input:checked")]
+    .map((input) => archiveMatches.find(
+      (course) => String(course.classroomId) === input.value
+    ))
+    .filter(Boolean);
+}
+
+function refreshArchiveMatchSelection() {
+  const count = checkedArchiveMatches().length;
+  archiveSubmitButton.disabled = count === 0 || archiveBusy;
+  archiveSubmitButton.textContent = count ? `归档 ${count} 门课程` : "归档";
+}
+
+function renderArchiveMatches(items) {
+  archiveMatches = items;
+  archiveMatchList.replaceChildren();
+  archiveResults.classList.remove("hidden");
+  archiveMatchCount.textContent = `${items.length} 门`;
+  archiveNoMatch.classList.toggle("hidden", items.length !== 0);
+  archiveMatchList.classList.toggle("hidden", items.length === 0);
+  archiveSelectAllButton.disabled = items.length === 0;
+  archiveSelectNoneButton.disabled = items.length === 0;
+
+  for (const course of items) {
+    const label = document.createElement("label");
+    label.className = "course-item";
+
+    const input = document.createElement("input");
+    input.type = "checkbox";
+    input.value = String(course.classroomId);
+    input.checked = true;
+    input.addEventListener("change", refreshArchiveMatchSelection);
+
+    const copy = document.createElement("div");
+    copy.className = "course-copy";
+    const name = document.createElement("div");
+    name.className = "course-name";
+    name.textContent = course.name;
+    name.title = course.name;
+    const meta = document.createElement("div");
+    meta.className = "course-meta";
+    meta.textContent = course.teacherName || course.term || `课堂 ID：${course.classroomId}`;
+    copy.append(name, meta);
+    label.append(input, copy);
+    archiveMatchList.append(label);
+  }
+  refreshArchiveMatchSelection();
+}
+
+function renderArchivedCourses(items) {
+  archivedCourses = items;
+  archivedCourseList.replaceChildren();
+  archiveListEmpty.classList.toggle("hidden", items.length !== 0);
+  archivedCourseList.classList.toggle("hidden", items.length === 0);
+
+  for (const course of items) {
+    const row = document.createElement("div");
+    row.className = "course-item archived-course-item";
+    const copy = document.createElement("div");
+    copy.className = "course-copy";
+    const name = document.createElement("div");
+    name.className = "course-name";
+    name.textContent = course.name;
+    name.title = course.name;
+    const meta = document.createElement("div");
+    meta.className = "course-meta";
+    meta.textContent = course.teacherName || course.term || `课堂 ID：${course.classroomId}`;
+    copy.append(name, meta);
+
+    const restore = document.createElement("button");
+    restore.className = "restore-button";
+    restore.type = "button";
+    restore.textContent = "恢复";
+    restore.addEventListener("click", () => restoreArchivedCourse(course, restore));
+    row.append(copy, restore);
+    archivedCourseList.append(row);
+  }
+}
+
+async function refreshCurrentCoursesSilently() {
+  const result = await send({ type: "SCAN_COURSES", tabId: activeTab.id });
+  if (!result?.ok) throw new Error(result?.error || "刷新课程列表失败。");
+  renderCourses(result.courses);
+}
+
+async function loadArchivedCourses() {
+  archiveRefreshButton.disabled = true;
+  setArchiveStatus("正在读取“我的归档”…");
+  try {
+    const result = await send({ type: "SCAN_ARCHIVED_COURSES", tabId: activeTab.id });
+    if (!result?.ok) throw new Error(result?.error || "读取归档课程失败。");
+    renderArchivedCourses(result.courses);
+    setArchiveStatus(
+      result.courses.length ? `已读取 ${result.courses.length} 门归档课程。` : "“我的归档”中暂无课程。",
+      result.courses.length ? "ok" : ""
+    );
+  } catch (error) {
+    renderArchivedCourses([]);
+    setArchiveStatus(error.message, "error");
+  } finally {
+    archiveRefreshButton.disabled = false;
+  }
+}
+
+async function restoreArchivedCourse(course, button) {
+  if (archiveBusy) return;
+  archiveBusy = true;
+  button.disabled = true;
+  button.textContent = "恢复中";
+  setArchiveStatus(`正在恢复“${course.name}”…`);
+  try {
+    const result = await send({
+      type: "SET_COURSE_ARCHIVED",
+      tabId: activeTab.id,
+      classroomIds: [course.classroomId],
+      archived: false
+    });
+    if (!result?.ok) throw new Error(result?.error || result?.failures?.[0]?.error || "恢复课程失败。");
+    renderArchivedCourses(archivedCourses.filter(
+      (item) => String(item.classroomId) !== String(course.classroomId)
+    ));
+    await refreshCurrentCoursesSilently();
+    setArchiveStatus(`已将“${course.name}”恢复到首页。`, "ok");
+  } catch (error) {
+    button.disabled = false;
+    button.textContent = "恢复";
+    setArchiveStatus(error.message, "error");
+  } finally {
+    archiveBusy = false;
+  }
+}
+
+function showArchiveTab(tab) {
+  const showList = tab === "list";
+  archiveAddTab.classList.toggle("active", !showList);
+  archiveListTab.classList.toggle("active", showList);
+  archiveAddTab.setAttribute("aria-selected", String(!showList));
+  archiveListTab.setAttribute("aria-selected", String(showList));
+  archiveAddView.classList.toggle("hidden", showList);
+  archiveListView.classList.toggle("hidden", !showList);
+  setArchiveStatus();
+  if (showList) loadArchivedCourses();
+}
+
+function openCourseArchive() {
+  resetArchiveFilter();
+  showArchiveTab("add");
+  setPhase("archive");
+}
+
+async function archiveSelectedCourses() {
+  const selected = checkedArchiveMatches();
+  if (!selected.length || archiveBusy) return;
+  archiveBusy = true;
+  archiveSubmitButton.disabled = true;
+  archiveSubmitButton.textContent = "归档中…";
+  archiveMatchList.querySelectorAll("input").forEach((input) => { input.disabled = true; });
+  setArchiveStatus(`正在归档 ${selected.length} 门课程…`);
+
+  try {
+    const result = await send({
+      type: "SET_COURSE_ARCHIVED",
+      tabId: activeTab.id,
+      classroomIds: selected.map((course) => course.classroomId),
+      archived: true
+    });
+    const completed = Number(result?.completed || 0);
+    if (!completed && !result?.ok) {
+      throw new Error(result?.error || result?.failures?.[0]?.error || "课程归档失败。");
+    }
+    await refreshCurrentCoursesSilently();
+    renderArchiveMatches(filterCoursesByKeyword(courses, archiveKeywordInput.value));
+    const failed = result?.failures?.length || 0;
+    setArchiveStatus(
+      failed
+        ? `已归档 ${completed} 门课程，另有 ${failed} 门失败。`
+        : `已归档 ${completed} 门课程，可在“我的归档”中恢复。`,
+      failed ? "error" : "ok"
+    );
+  } catch (error) {
+    setArchiveStatus(error.message, "error");
+  } finally {
+    archiveBusy = false;
+    archiveMatchList.querySelectorAll("input").forEach((input) => { input.disabled = false; });
+    refreshArchiveMatchSelection();
+  }
 }
 
 function lessonMatchesRange(date) {
@@ -481,6 +718,7 @@ function renderProgress(state) {
   exportButton.classList.toggle("hidden", running);
   cancelButton.classList.toggle("hidden", !running);
   scanButton.disabled = running;
+  featureToggleButton.disabled = running;
   courseSearch.disabled = running;
   courseList.querySelectorAll("input").forEach((input) => { input.disabled = running; });
   refreshFooter();
@@ -510,6 +748,7 @@ function renderProgress(state) {
 async function scanCourses() {
   if (!activeTab?.id) return;
   scanButton.disabled = true;
+  featureToggleButton.disabled = true;
   loadingPanel.classList.remove("hidden");
   setNotice("正在读取当前账号可访问的课程…");
 
@@ -529,21 +768,16 @@ async function scanCourses() {
     setNotice(error.message, "error");
   } finally {
     scanButton.disabled = running;
+    featureToggleButton.disabled = running;
   }
 }
 
 async function init() {
+  extensionVersion.textContent = `v${chrome.runtime.getManifest().version}`;
   [activeTab] = await chrome.tabs.query({ active: true, currentWindow: true });
-  let activeHostname = "";
-  let connected = false;
-  try {
-    const activeUrl = new URL(activeTab?.url || "");
-    activeHostname = activeUrl.hostname.toLocaleLowerCase();
-    connected = activeUrl.protocol === "https:" &&
-      (activeHostname === "yuketang.cn" || activeHostname.endsWith(".yuketang.cn"));
-  } catch {}
+  const { hostname: activeHostname, supported: connected } = parseYuketangUrl(activeTab?.url);
 
-  platformName.textContent = PLATFORM_NAMES[activeHostname] || "雨课堂";
+  platformName.textContent = getPlatformName(activeHostname);
   compatibilityWarning.classList.toggle(
     "hidden",
     !connected || activeHostname === "changjiang.yuketang.cn"
@@ -554,6 +788,7 @@ async function init() {
     setNotice("请先在当前标签页打开并登录雨课堂。", "error");
     loadingPanel.classList.add("hidden");
     scanButton.disabled = true;
+    featureToggleButton.disabled = true;
     exportButton.disabled = true;
     return;
   }
@@ -570,6 +805,65 @@ async function init() {
 
 scanButton.addEventListener("click", scanCourses);
 courseSearch.addEventListener("input", filterCourses);
+
+featureToggleButton.addEventListener("click", () => {
+  setPhase(phase === "features" || phase === "archive" ? featureReturnPhase : "features");
+});
+
+openCourseArchiveButton.addEventListener("click", openCourseArchive);
+archiveBackButton.addEventListener("click", () => setPhase("features"));
+archiveAddTab.addEventListener("click", () => showArchiveTab("add"));
+archiveListTab.addEventListener("click", () => showArchiveTab("list"));
+archiveRefreshButton.addEventListener("click", loadArchivedCourses);
+
+archiveYearSelect.addEventListener("change", syncArchiveKeywordFromTerm);
+archiveSeasonSelect.addEventListener("change", syncArchiveKeywordFromTerm);
+archiveKeywordInput.addEventListener("input", () => {
+  archiveYearSelect.value = "";
+  archiveSeasonSelect.value = "";
+  archiveResults.classList.add("hidden");
+  setArchiveStatus();
+});
+
+archiveMatchButton.addEventListener("click", () => {
+  const keyword = archiveKeywordInput.value.trim();
+  if (!keyword) {
+    archiveResults.classList.add("hidden");
+    setArchiveStatus("请输入课程筛选关键词。", "error");
+    return;
+  }
+  const matches = filterCoursesByKeyword(courses, keyword);
+  renderArchiveMatches(matches);
+  setArchiveStatus(
+    matches.length ? `关键词“${keyword}”命中 ${matches.length} 门课程，请确认后归档。` : `没有课程命中关键词“${keyword}”。`,
+    matches.length ? "ok" : ""
+  );
+});
+
+archiveSelectAllButton.addEventListener("click", () => {
+  archiveMatchList.querySelectorAll("input:not(:disabled)").forEach((input) => {
+    input.checked = true;
+  });
+  refreshArchiveMatchSelection();
+});
+
+archiveSelectNoneButton.addEventListener("click", () => {
+  archiveMatchList.querySelectorAll("input:not(:disabled)").forEach((input) => {
+    input.checked = false;
+  });
+  refreshArchiveMatchSelection();
+});
+
+archiveSubmitButton.addEventListener("click", () => {
+  const selected = checkedArchiveMatches();
+  if (!selected.length) return;
+  archiveConfirmCopy.textContent = `将把 ${selected.length} 门匹配课程移出雨课堂首页。归档后可在“我的归档”中恢复。`;
+  archiveConfirmDialog.showModal();
+});
+
+archiveConfirmDialog.addEventListener("close", () => {
+  if (archiveConfirmDialog.returnValue === "confirm") archiveSelectedCourses();
+});
 
 dateFromInput.addEventListener("change", () => applyLessonRange(true));
 dateToInput.addEventListener("change", () => applyLessonRange(true));
