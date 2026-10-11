@@ -74,6 +74,18 @@ button { -webkit-tap-highlight-color: transparent; }
 .connection-status[data-state="error"] { color: #a33a3a; }
 .connection-status[data-state="error"] .status-dot { background: #d95050; }
 
+.compatibility-warning {
+  margin: 12px 16px 0;
+  padding: 9px 10px;
+  border: 1px solid #f2cf88;
+  border-left: 3px solid #d89016;
+  border-radius: 5px;
+  color: #79540e;
+  background: #fff8e8;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
 .notice {
   margin: 12px 16px 0;
   padding: 9px 10px;
@@ -195,6 +207,55 @@ button { -webkit-tap-highlight-color: transparent; }
 
 .date-separator { flex: 0 0 auto; color: #92979e; font-size: 11px; }
 .date-range .text-button { flex: 0 0 auto; }
+
+.export-options {
+  margin: 10px 16px 0;
+  padding: 10px;
+  border: 1px solid #e0e3e7;
+  border-radius: 7px;
+  background: #fafafa;
+}
+
+.directory-row { display: flex; align-items: center; gap: 10px; }
+.directory-copy { display: flex; min-width: 0; flex: 1; flex-direction: column; gap: 2px; }
+.directory-copy strong { color: #34383e; font-size: 11px; }
+.directory-copy span {
+  overflow: hidden;
+  color: #777c84;
+  font-size: 10px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.directory-copy span[data-state="granted"] { color: #28734a; }
+.directory-copy span[data-state="prompt"] { color: #9a6710; }
+
+.small-button {
+  flex: 0 0 auto;
+  padding: 4px 8px;
+  border: 1px solid #cfd3d8;
+  border-radius: 5px;
+  color: #3f454c;
+  background: #ffffff;
+  font-size: 10px;
+  cursor: pointer;
+}
+.small-button:hover { background: #f3f5f7; }
+
+.duplicate-modes {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin: 9px 0 0;
+  padding: 8px 0 0;
+  border: 0;
+  border-top: 1px solid #e5e7ea;
+}
+.duplicate-modes legend { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+.duplicate-modes label { display: grid; grid-template-columns: 14px 1fr; gap: 5px; cursor: pointer; }
+.duplicate-modes input { width: 13px; height: 13px; margin: 1px 0 0; accent-color: #1677ff; }
+.duplicate-modes span { display: flex; min-width: 0; flex-direction: column; gap: 1px; }
+.duplicate-modes strong { color: #3b4046; font-size: 10px; font-weight: 600; }
+.duplicate-modes small { color: #858a91; font-size: 9px; line-height: 1.35; }
 
 .lesson-scope {
   margin: 10px 16px;

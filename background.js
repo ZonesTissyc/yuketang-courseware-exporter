@@ -1,27 +1,10 @@
-const ORIGIN = "https://changjiang.yuketang.cn";
 const STATE_KEY = "exportState";
+const DIRECTORY_DB_NAME = "yuketang-courseware-exporter";
+const DIRECTORY_STORE_NAME = "settings";
+const DIRECTORY_HANDLE_KEY = "export-directory";
 
 let cancelRequested = false;
 let running = false;
-let pendingPdfDownload = null;
-
-chrome.downloads.onDeterminingFilename.addListener((downloadItem, suggest) => {
-  const pending = pendingPdfDownload;
-  const isPendingPdf = pending &&
-    (downloadItem.byExtensionId === chrome.runtime.id || downloadItem.url === pending.url) &&
-    downloadItem.url.startsWith("data:application/pdf");
-
-  if (!isPendingPdf) {
-    suggest();
-    return;
-  }
-
-  pending.suggested = true;
-  suggest({
-    filename: pending.filename,
-    conflictAction: "uniquify"
-  });
-});
 
 const initialState = {
   status: "idle",
@@ -29,9 +12,45 @@ const initialState = {
   current: "",
   total: 0,
   completed: 0,
+  exported: 0,
   duplicatesSkipped: 0,
+  localDuplicatesSkipped: 0,
+  tabId: null,
+  startedAt: 0,
+  finishedAt: 0,
   errors: []
 };
+
+const TERMINAL_STATUSES = new Set(["done", "error", "cancelled"]);
+
+function openDirectoryDatabase() {
+  return new Promise((resolve, reject) => {
+    const request = indexedDB.open(DIRECTORY_DB_NAME, 1);
+    request.onupgradeneeded = () => {
+      if (!request.result.objectStoreNames.contains(DIRECTORY_STORE_NAME)) {
+        request.result.createObjectStore(DIRECTORY_STORE_NAME);
+      }
+    };
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error);
+  });
+}
+
+async function getExportDirectoryHandle() {
+  const database = await openDirectoryDatabase();
+  try {
+    return await new Promise((resolve, reject) => {
+      const request = database
+        .transaction(DIRECTORY_STORE_NAME, "readonly")
+        .objectStore(DIRECTORY_STORE_NAME)
+        .get(DIRECTORY_HANDLE_KEY);
+      request.onsuccess = () => resolve(request.result || null);
+      request.onerror = () => reject(request.error);
+    });
+  } finally {
+    database.close();
+  }
+}
 
 async function readState() {
   const stored = await chrome.storage.local.get(STATE_KEY);
@@ -44,10 +63,23 @@ async function writeState(patch) {
   return next;
 }
 
+async function resetState() {
+  const next = { ...initialState, updatedAt: Date.now() };
+  await chrome.storage.local.set({ [STATE_KEY]: next });
+  return next;
+}
+
 async function validateSiteTab(tabId) {
   const tab = await chrome.tabs.get(tabId);
-  if (!tab.url?.startsWith(`${ORIGIN}/`)) {
-    throw new Error("请保持一个已登录的长江雨课堂标签页打开。 ");
+  let parsed;
+  try {
+    parsed = new URL(tab.url || "");
+  } catch {}
+  const hostname = parsed?.hostname?.toLocaleLowerCase() || "";
+  const isYuketang = parsed?.protocol === "https:" &&
+    (hostname === "yuketang.cn" || hostname.endsWith(".yuketang.cn"));
+  if (!isYuketang) {
+    throw new Error("请保持一个已登录的雨课堂标签页打开。 ");
   }
   return tab;
 }
@@ -345,61 +377,79 @@ async function printTabToPdf(tabId, landscape) {
   }
 }
 
-async function downloadPdf(base64, filename) {
-  const url = `data:application/pdf;base64,${base64}`;
-  const pending = { url, filename, suggested: false };
-  pendingPdfDownload = pending;
+function buildExportTarget(job, presentation) {
+  const date = formatDate(job.createTime);
+  const title = presentation.title || job.title;
+  let suffix = "";
+  if (job.presentationCount > 1) {
+    const digits = Math.max(2, String(job.presentationCount).length);
+    const order = String(job.presentationIndex).padStart(digits, "0");
+    const presentationName = title === job.title ? "" : ` ${sanitizeSegment(title)}`;
+    suffix = ` - 课件 ${order}${presentationName}`;
+  } else if (title !== job.title) {
+    suffix = ` - ${title}`;
+  }
+  return {
+    courseName: sanitizeSegment(job.course.name),
+    filename: `${date ? `${date} ` : ""}${sanitizeSegment(job.title)}` +
+      `${sanitizeSegment(suffix, "")}.pdf`
+  };
+}
 
+async function getExistingFile(directoryHandle, filename) {
   try {
-    const downloadId = await chrome.downloads.download({
-      url,
-      filename,
-      saveAs: false,
-      conflictAction: "uniquify"
-    });
-    const actualFilename = await waitForDownloadFilename(downloadId, filename);
-    return { downloadId, filename: actualFilename, forced: pending.suggested };
-  } finally {
-    if (pendingPdfDownload === pending) pendingPdfDownload = null;
+    const fileHandle = await directoryHandle.getFileHandle(filename);
+    return await fileHandle.getFile();
+  } catch (error) {
+    if (error?.name === "NotFoundError") return null;
+    throw error;
   }
 }
 
-function downloadFilenameMatches(actualFilename, requestedFilename) {
-  const actualParts = String(actualFilename || "").replace(/\\/g, "/").split("/");
-  const requestedParts = String(requestedFilename || "").replace(/\\/g, "/").split("/");
-  const actualName = actualParts.pop() || "";
-  const requestedName = requestedParts.pop() || "";
-  const actualDirectory = actualParts.slice(-requestedParts.length).join("/");
-  const requestedDirectory = requestedParts.join("/");
+function splitFilename(filename) {
+  const dot = filename.lastIndexOf(".");
+  return dot > 0
+    ? { stem: filename.slice(0, dot), extension: filename.slice(dot) }
+    : { stem: filename, extension: "" };
+}
 
-  if (actualDirectory.toLocaleLowerCase() !== requestedDirectory.toLocaleLowerCase()) return false;
-  if (actualName.toLocaleLowerCase() === requestedName.toLocaleLowerCase()) return true;
-
-  const dot = requestedName.lastIndexOf(".");
-  const stem = dot > 0 ? requestedName.slice(0, dot) : requestedName;
-  const extension = dot > 0 ? requestedName.slice(dot) : "";
+async function inspectFilenameFamily(directoryHandle, filename, expectedSize) {
+  const { stem, extension } = splitFilename(filename);
   const escapedStem = stem.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   const escapedExtension = extension.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  return new RegExp(`^${escapedStem} \\(\\d+\\)${escapedExtension}$`, "i").test(actualName);
-}
+  const pattern = new RegExp(`^${escapedStem}(?: \\((\\d+)\\))?${escapedExtension}$`, "i");
+  const usedIndexes = new Set();
+  let matchingSize = false;
 
-async function waitForDownloadFilename(downloadId, requestedFilename) {
-  let actualFilename = "";
-  for (let attempt = 0; attempt < 20; attempt += 1) {
-    const [download] = await chrome.downloads.search({ id: downloadId });
-    actualFilename = download?.filename || actualFilename;
-    if (downloadFilenameMatches(actualFilename, requestedFilename)) return actualFilename;
-    await new Promise((resolve) => setTimeout(resolve, 100));
+  for await (const [name, handle] of directoryHandle.entries()) {
+    if (handle.kind !== "file") continue;
+    const match = name.match(pattern);
+    if (!match) continue;
+    usedIndexes.add(match[1] ? Number(match[1]) : 0);
+    const file = await handle.getFile();
+    if (file.size === expectedSize) matchingSize = true;
   }
 
-  const actualName = actualFilename || "未知";
-  throw new Error(
-    `浏览器未采用课件文件名。期望“${requestedFilename}”，实际“${actualName}”。` +
-    "请检查是否有其他下载管理扩展正在改写文件名。"
-  );
+  if (matchingSize) return { matchingSize: true, filename };
+  if (!usedIndexes.has(0)) return { matchingSize: false, filename };
+  let index = 1;
+  while (usedIndexes.has(index)) index += 1;
+  return { matchingSize: false, filename: `${stem} (${index})${extension}` };
 }
 
-async function exportJob(tabId, job) {
+async function writeFile(directoryHandle, filename, blob) {
+  const fileHandle = await directoryHandle.getFileHandle(filename, { create: true });
+  const writable = await fileHandle.createWritable();
+  try {
+    await writable.write(blob);
+    await writable.close();
+  } catch (error) {
+    await writable.abort().catch(() => {});
+    throw error;
+  }
+}
+
+async function exportJob(tabId, job, exportDirectory, duplicateMode) {
   const response = await pageFetch(
     tabId,
     `/api/v3/lesson-summary/student/presentation?lesson_id=${encodeURIComponent(job.lessonId)}` +
@@ -409,6 +459,12 @@ async function exportJob(tabId, job) {
   const slides = response?.data?.slides;
   if (!presentation || !Array.isArray(slides) || slides.length === 0) {
     throw new Error("未找到可打印的课件页面。 ");
+  }
+
+  const target = buildExportTarget(job, presentation);
+  const courseDirectory = await exportDirectory.getDirectoryHandle(target.courseName, { create: true });
+  if (duplicateMode === "tolerant" && await getExistingFile(courseDirectory, target.filename)) {
+    return { status: "skipped", reason: "existing", filename: target.filename };
   }
 
   const payload = {
@@ -425,31 +481,28 @@ async function exportJob(tabId, job) {
   };
 
   await setPrintPayload(tabId, payload);
-  const printTab = await chrome.tabs.create({ url: `${ORIGIN}/web/print`, active: false });
+  const siteTab = await validateSiteTab(tabId);
+  const siteOrigin = new URL(siteTab.url).origin;
+  const printTab = await chrome.tabs.create({ url: `${siteOrigin}/web/print`, active: false });
   if (!printTab.id) throw new Error("无法创建打印页面。 ");
 
   try {
     await waitForTabComplete(printTab.id);
     await waitForPrintReady(printTab.id);
-    const pdf = await printTabToPdf(printTab.id, payload.Width > payload.Height);
+    const pdfBase64 = await printTabToPdf(printTab.id, payload.Width > payload.Height);
+    const pdfBlob = await fetch(`data:application/pdf;base64,${pdfBase64}`).then((result) => result.blob());
+    let outputFilename = target.filename;
 
-    const date = formatDate(job.createTime);
-    const title = presentation.title || job.title;
-    let suffix = "";
-    if (job.presentationCount > 1) {
-      const digits = Math.max(2, String(job.presentationCount).length);
-      const order = String(job.presentationIndex).padStart(digits, "0");
-      const presentationName = title === job.title ? "" : ` ${sanitizeSegment(title)}`;
-      suffix = ` - 课件 ${order}${presentationName}`;
-    } else if (title !== job.title) {
-      suffix = ` - ${title}`;
+    if (duplicateMode === "strict") {
+      const inspection = await inspectFilenameFamily(courseDirectory, target.filename, pdfBlob.size);
+      if (inspection.matchingSize) {
+        return { status: "skipped", reason: "same-size", filename: target.filename };
+      }
+      outputFilename = inspection.filename;
     }
-    const filename = [
-      "雨课堂课件",
-      sanitizeSegment(job.course.name),
-      `${date ? `${date} ` : ""}${sanitizeSegment(job.title)}${sanitizeSegment(suffix, "")}.pdf`
-    ].join("/");
-    await downloadPdf(pdf, filename);
+
+    await writeFile(courseDirectory, outputFilename, pdfBlob);
+    return { status: "exported", filename: outputFilename };
   } finally {
     await chrome.tabs.remove(printTab.id).catch(() => {});
   }
@@ -458,21 +511,32 @@ async function exportJob(tabId, job) {
 async function runExport(tabId, courses, filters = {}) {
   running = true;
   cancelRequested = false;
+  const duplicateMode = filters.duplicateMode === "strict" ? "strict" : "tolerant";
   await writeState({
     status: "scanning",
     label: "正在扫描课程",
     current: "",
     total: 0,
     completed: 0,
+    exported: 0,
     duplicatesSkipped: 0,
+    localDuplicatesSkipped: 0,
+    tabId,
+    startedAt: Date.now(),
+    finishedAt: 0,
     errors: [],
     error: ""
   });
 
   try {
+    const exportDirectory = await getExportDirectoryHandle();
+    if (!exportDirectory) throw new Error("请先选择并授权课件导出目录。");
+    const permission = await exportDirectory.queryPermission({ mode: "readwrite" });
+    if (permission !== "granted") throw new Error("课件导出目录权限已失效，请重新授权。");
+
     const { jobs, duplicateCount } = await collectJobs(tabId, courses, filters);
     if (cancelRequested) {
-      await writeState({ status: "cancelled", label: "已停止" });
+      await writeState({ status: "cancelled", label: "已停止", finishedAt: Date.now() });
       return;
     }
     await writeState({
@@ -480,9 +544,13 @@ async function runExport(tabId, courses, filters = {}) {
       label: "正在导出",
       total: jobs.length,
       completed: 0,
+      exported: 0,
+      localDuplicatesSkipped: 0,
       duplicatesSkipped: duplicateCount
     });
 
+    let exported = 0;
+    let localDuplicatesSkipped = 0;
     for (let index = 0; index < jobs.length; index += 1) {
       if (cancelRequested) break;
       const job = jobs[index];
@@ -495,12 +563,18 @@ async function runExport(tabId, courses, filters = {}) {
         completed: index
       });
       try {
-        await exportJob(tabId, job);
+        const result = await exportJob(tabId, job, exportDirectory, duplicateMode);
+        if (result.status === "exported") exported += 1;
+        if (result.status === "skipped") localDuplicatesSkipped += 1;
       } catch (error) {
         const state = await readState();
         await writeState({ errors: [...(state.errors || []), `${job.title}：${error.message}`] });
       }
-      await writeState({ completed: index + 1 });
+      await writeState({
+        completed: index + 1,
+        exported,
+        localDuplicatesSkipped
+      });
     }
 
     const state = await readState();
@@ -508,17 +582,34 @@ async function runExport(tabId, courses, filters = {}) {
       status: cancelRequested ? "cancelled" : "done",
       label: cancelRequested ? "已停止" : "导出完成",
       current: "",
-      completed: state.completed
+      completed: state.completed,
+      exported: state.exported,
+      localDuplicatesSkipped: state.localDuplicatesSkipped,
+      finishedAt: Date.now()
     });
   } catch (error) {
-    await writeState({ status: "error", label: "导出失败", error: error.message, current: "" });
+    await writeState({
+      status: "error",
+      label: "导出失败",
+      error: error.message,
+      current: "",
+      finishedAt: Date.now()
+    });
   } finally {
     running = false;
   }
 }
 
 chrome.runtime.onInstalled.addListener(() => {
-  chrome.storage.local.set({ [STATE_KEY]: initialState });
+  resetState();
+});
+
+chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
+  if (changeInfo.status !== "loading") return;
+  readState().then((state) => {
+    if (state.tabId === tabId && TERMINAL_STATUSES.has(state.status)) return resetState();
+    return null;
+  }).catch(() => {});
 });
 
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
@@ -557,7 +648,8 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     runExport(message.tabId, message.courses, {
       dateFrom: message.dateFrom || "",
       dateTo: message.dateTo || "",
-      lessonIds: Array.isArray(message.lessonIds) ? message.lessonIds : null
+      lessonIds: Array.isArray(message.lessonIds) ? message.lessonIds : null,
+      duplicateMode: message.duplicateMode === "strict" ? "strict" : "tolerant"
     });
     sendResponse({ ok: true });
     return false;

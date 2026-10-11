@@ -14,13 +14,17 @@
         </div>
         <div class="app-title">
           <h1>课件导出器</h1>
-          <p>长江雨课堂</p>
+          <p id="platform-name">雨课堂</p>
         </div>
         <div id="connection-status" class="connection-status" data-state="checking">
           <span class="status-dot" aria-hidden="true"></span>
           <span id="connection-text">检查中</span>
         </div>
       </header>
+
+      <section id="compatibility-warning" class="compatibility-warning hidden" role="note">
+        本插件基于“长江”雨课堂开发，不保证在当前雨课堂能正常使用！
+      </section>
 
       <section id="notice" class="notice" role="status" aria-live="polite">
         正在检查当前页面…
@@ -73,6 +77,27 @@
           <button id="date-reset" class="text-button" type="button">不限</button>
         </div>
 
+        <div class="export-options">
+          <div class="directory-row">
+            <div class="directory-copy">
+              <strong>导出目录</strong>
+              <span id="directory-name">尚未选择课件文件夹</span>
+            </div>
+            <button id="choose-directory" class="small-button" type="button">选择目录</button>
+          </div>
+          <fieldset class="duplicate-modes">
+            <legend>重复处理</legend>
+            <label>
+              <input type="radio" name="duplicate-mode" value="tolerant" checked />
+              <span><strong>宽容模式</strong><small>同名文件存在时直接跳过</small></span>
+            </label>
+            <label>
+              <input type="radio" name="duplicate-mode" value="strict" />
+              <span><strong>严格模式</strong><small>生成后按文件大小判断重复</small></span>
+            </label>
+          </fieldset>
+        </div>
+
         <p id="lesson-scope" class="lesson-scope"></p>
 
         <div id="lesson-list-heading" class="list-heading">
@@ -107,6 +132,7 @@
         </div>
         <p id="current-item" class="current-item"></p>
         <p id="duplicate-summary" class="duplicate-summary hidden"></p>
+        <p id="local-duplicate-summary" class="duplicate-summary hidden"></p>
         <details id="error-details" class="error-details hidden">
           <summary id="error-summary"></summary>
           <p id="error-message"></p>

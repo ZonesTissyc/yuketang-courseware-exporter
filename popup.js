@@ -1,4 +1,7 @@
 const $ = (selector) => document.querySelector(selector);
+const DIRECTORY_DB_NAME = "yuketang-courseware-exporter";
+const DIRECTORY_STORE_NAME = "settings";
+const DIRECTORY_HANDLE_KEY = "export-directory";
 
 const notice = $("#notice");
 const scanButton = $("#scan");
@@ -20,6 +23,9 @@ const lessonSelectNoneButton = $("#lesson-select-none");
 const dateFromInput = $("#date-from");
 const dateToInput = $("#date-to");
 const dateResetButton = $("#date-reset");
+const chooseDirectoryButton = $("#choose-directory");
+const directoryName = $("#directory-name");
+const duplicateModeInputs = [...document.querySelectorAll('input[name="duplicate-mode"]')];
 const backButton = $("#back");
 const selectionLabel = $("#selection-label");
 const courseSearch = $("#course-search");
@@ -29,6 +35,8 @@ const selectedCount = $("#selected-count");
 const loadingPanel = $("#loading-panel");
 const connectionStatus = $("#connection-status");
 const connectionText = $("#connection-text");
+const platformName = $("#platform-name");
+const compatibilityWarning = $("#compatibility-warning");
 const progressPanel = $("#progress-panel");
 const progressLabel = $("#progress-label");
 const progressCount = $("#progress-count");
@@ -36,6 +44,7 @@ const progressBar = $("#progress-bar");
 const progressTrack = $(".progress-track");
 const currentItem = $("#current-item");
 const duplicateSummary = $("#duplicate-summary");
+const localDuplicateSummary = $("#local-duplicate-summary");
 const errorDetails = $("#error-details");
 const errorSummary = $("#error-summary");
 const errorMessage = $("#error-message");
@@ -47,6 +56,125 @@ let phase = "courses";
 let pendingCourses = [];
 let lessons = [];
 let lessonCheckedCount = 0;
+let exportDirectoryHandle = null;
+
+const PLATFORM_NAMES = {
+  "www.yuketang.cn": "普通雨课堂",
+  "pro.yuketang.cn": "荷塘雨课堂",
+  "huanghe.yuketang.cn": "黄河雨课堂",
+  "changjiang.yuketang.cn": "长江雨课堂"
+};
+
+function openDirectoryDatabase() {
+  return new Promise((resolve, reject) => {
+    const request = indexedDB.open(DIRECTORY_DB_NAME, 1);
+    request.onupgradeneeded = () => {
+      if (!request.result.objectStoreNames.contains(DIRECTORY_STORE_NAME)) {
+        request.result.createObjectStore(DIRECTORY_STORE_NAME);
+      }
+    };
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error);
+  });
+}
+
+async function readDirectoryHandle() {
+  const database = await openDirectoryDatabase();
+  try {
+    return await new Promise((resolve, reject) => {
+      const request = database
+        .transaction(DIRECTORY_STORE_NAME, "readonly")
+        .objectStore(DIRECTORY_STORE_NAME)
+        .get(DIRECTORY_HANDLE_KEY);
+      request.onsuccess = () => resolve(request.result || null);
+      request.onerror = () => reject(request.error);
+    });
+  } finally {
+    database.close();
+  }
+}
+
+async function saveDirectoryHandle(handle) {
+  const database = await openDirectoryDatabase();
+  try {
+    await new Promise((resolve, reject) => {
+      const transaction = database.transaction(DIRECTORY_STORE_NAME, "readwrite");
+      transaction.objectStore(DIRECTORY_STORE_NAME).put(handle, DIRECTORY_HANDLE_KEY);
+      transaction.oncomplete = () => resolve();
+      transaction.onerror = () => reject(transaction.error);
+      transaction.onabort = () => reject(transaction.error);
+    });
+  } finally {
+    database.close();
+  }
+}
+
+async function refreshDirectoryStatus() {
+  exportDirectoryHandle = exportDirectoryHandle || await readDirectoryHandle();
+  if (!exportDirectoryHandle) {
+    directoryName.textContent = "尚未选择课件文件夹";
+    directoryName.dataset.state = "missing";
+    chooseDirectoryButton.textContent = "选择目录";
+    return "missing";
+  }
+  const permission = await exportDirectoryHandle.queryPermission({ mode: "readwrite" });
+  directoryName.textContent = permission === "granted"
+    ? `${exportDirectoryHandle.name}（已授权）`
+    : `${exportDirectoryHandle.name}（需要重新授权）`;
+  directoryName.dataset.state = permission;
+  chooseDirectoryButton.textContent = permission === "granted" ? "更换目录" : "重新授权";
+  return permission;
+}
+
+async function chooseExportDirectory() {
+  if (!("showDirectoryPicker" in window)) {
+    throw new Error("当前浏览器不支持目录授权，请使用最新版 Chrome 或 Edge。");
+  }
+
+  if (exportDirectoryHandle) {
+    const permission = await exportDirectoryHandle.queryPermission({ mode: "readwrite" });
+    if (permission !== "granted") {
+      const nextPermission = await exportDirectoryHandle.requestPermission({ mode: "readwrite" });
+      if (nextPermission === "granted") {
+        await refreshDirectoryStatus();
+        return;
+      }
+    }
+  }
+
+  const handle = await window.showDirectoryPicker({
+    id: "yuketang-courseware-export",
+    mode: "readwrite",
+    startIn: "downloads"
+  });
+  exportDirectoryHandle = handle;
+  await saveDirectoryHandle(handle);
+  await refreshDirectoryStatus();
+}
+
+function selectedDuplicateMode() {
+  return duplicateModeInputs.find((input) => input.checked)?.value === "strict"
+    ? "strict"
+    : "tolerant";
+}
+
+function clearProgress() {
+  document.body.classList.remove("has-progress");
+  progressPanel.classList.add("hidden");
+  progressLabel.textContent = "准备中";
+  progressCount.textContent = "0 / 0";
+  progressBar.style.width = "0%";
+  progressTrack.setAttribute("aria-valuenow", "0");
+  currentItem.textContent = "";
+  duplicateSummary.classList.add("hidden");
+  localDuplicateSummary.classList.add("hidden");
+  errorDetails.classList.add("hidden");
+  errorSummary.textContent = "";
+  errorMessage.textContent = "";
+  running = false;
+  exportButton.classList.remove("hidden");
+  cancelButton.classList.add("hidden");
+}
 
 function setNotice(message, type = "") {
   notice.textContent = message;
@@ -298,7 +426,18 @@ async function startExport() {
     setNotice("请至少选择一个课件。", "error");
     return;
   }
-  const filters = { dateFrom: dateFromInput.value, dateTo: dateToInput.value, lessonIds };
+  const directoryPermission = await refreshDirectoryStatus();
+  if (directoryPermission !== "granted") {
+    setNotice("请先选择并授权现有的“雨课堂课件”文件夹。", "error");
+    return;
+  }
+  const duplicateMode = selectedDuplicateMode();
+  const filters = {
+    dateFrom: dateFromInput.value,
+    dateTo: dateToInput.value,
+    lessonIds,
+    duplicateMode
+  };
   setPhase("courses");
   const result = await send({
     type: "START_EXPORT",
@@ -310,7 +449,10 @@ async function startExport() {
 }
 
 function renderProgress(state) {
-  if (!state || state.status === "idle") return;
+  if (!state || state.status === "idle") {
+    clearProgress();
+    return;
+  }
 
   document.body.classList.add("has-progress");
   progressPanel.classList.remove("hidden");
@@ -331,6 +473,9 @@ function renderProgress(state) {
   const duplicatesSkipped = Number(state.duplicatesSkipped || 0);
   duplicateSummary.classList.toggle("hidden", duplicatesSkipped === 0);
   duplicateSummary.textContent = `已按课件 ID 跳过 ${duplicatesSkipped} 个重复引用`;
+  const localDuplicatesSkipped = Number(state.localDuplicatesSkipped || 0);
+  localDuplicateSummary.classList.toggle("hidden", localDuplicatesSkipped === 0);
+  localDuplicateSummary.textContent = `已跳过 ${localDuplicatesSkipped} 个本地重复文件`;
 
   running = state.status === "running" || state.status === "scanning";
   exportButton.classList.toggle("hidden", running);
@@ -345,7 +490,13 @@ function renderProgress(state) {
       setNotice("没有找到符合日期范围的课件。", "");
     } else {
       const duplicateCopy = duplicatesSkipped ? `，跳过 ${duplicatesSkipped} 个重复引用` : "";
-      setNotice(`导出完成，共生成 ${state.completed} 个文件${duplicateCopy}。`, errors.length ? "" : "ok");
+      const localDuplicateCopy = localDuplicatesSkipped
+        ? `，跳过 ${localDuplicatesSkipped} 个本地重复文件`
+        : "";
+      setNotice(
+        `导出完成，共生成 ${Number(state.exported || 0)} 个文件${duplicateCopy}${localDuplicateCopy}。`,
+        errors.length ? "" : "ok"
+      );
     }
   } else if (state.status === "cancelled") {
     setNotice("导出任务已停止。", "");
@@ -383,11 +534,24 @@ async function scanCourses() {
 
 async function init() {
   [activeTab] = await chrome.tabs.query({ active: true, currentWindow: true });
-  const connected = activeTab?.url?.startsWith("https://changjiang.yuketang.cn/");
+  let activeHostname = "";
+  let connected = false;
+  try {
+    const activeUrl = new URL(activeTab?.url || "");
+    activeHostname = activeUrl.hostname.toLocaleLowerCase();
+    connected = activeUrl.protocol === "https:" &&
+      (activeHostname === "yuketang.cn" || activeHostname.endsWith(".yuketang.cn"));
+  } catch {}
+
+  platformName.textContent = PLATFORM_NAMES[activeHostname] || "雨课堂";
+  compatibilityWarning.classList.toggle(
+    "hidden",
+    !connected || activeHostname === "changjiang.yuketang.cn"
+  );
 
   if (!connected) {
     setConnection("error", "未连接");
-    setNotice("请先在当前标签页打开并登录长江雨课堂。", "error");
+    setNotice("请先在当前标签页打开并登录雨课堂。", "error");
     loadingPanel.classList.add("hidden");
     scanButton.disabled = true;
     exportButton.disabled = true;
@@ -395,6 +559,10 @@ async function init() {
   }
 
   setConnection("connected", "已连接");
+  const settings = await chrome.storage.local.get("duplicateMode");
+  const savedMode = settings.duplicateMode === "strict" ? "strict" : "tolerant";
+  duplicateModeInputs.forEach((input) => { input.checked = input.value === savedMode; });
+  await refreshDirectoryStatus();
   const result = await send({ type: "GET_STATE" }).catch(() => null);
   if (result?.state) renderProgress(result.state);
   await scanCourses();
@@ -409,6 +577,23 @@ dateResetButton.addEventListener("click", () => {
   dateFromInput.value = "";
   dateToInput.value = "";
   applyLessonRange(true);
+});
+
+chooseDirectoryButton.addEventListener("click", async () => {
+  try {
+    await chooseExportDirectory();
+    setNotice(`已授权导出目录“${exportDirectoryHandle.name}”。`, "ok");
+  } catch (error) {
+    if (error?.name !== "AbortError") {
+      setNotice(error.message || "无法授权导出目录。", "error");
+    }
+  }
+});
+
+duplicateModeInputs.forEach((input) => {
+  input.addEventListener("change", () => {
+    if (input.checked) chrome.storage.local.set({ duplicateMode: input.value });
+  });
 });
 
 lessonSelectAllButton.addEventListener("click", () => {
