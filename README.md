@@ -6,32 +6,41 @@
 
 ## 功能概览
 
-- 批量选择课程，将课堂课件导出为 PDF。
-- 按日期和具体课件筛选导出内容。
-- 支持一次授课包含多个课件，并按课件 ID 去重。
-- 授权本地目录，以宽容或严格模式跳过重复文件。
-- 识别普通、荷塘、黄河和长江雨课堂域名。
-- 按自定义或学期关键词筛选旧课程，将课程移出首页并支持恢复。
+- 批量选择课程课件并导出为 PDF。
+- 自动识别并跳过重复课件。
+- 归档已结束学期的旧课程，保持首页干净。
+
+## 效果预览
+
+### 批量选择课程
+
+![批量选择课程](docs/images/course-selection.png)
+
+### 筛选并导出课件
+
+![筛选并导出课件](docs/images/courseware-selection.png)
 
 ## 安装
 
-### Microsoft Edge
+### 方式一：Microsoft Edge 商店安装（推荐）
+
+**该插件已经上架Edge插件商店！**
+
+在 Microsoft Edge 打开扩展商店页面，点击“获取”即可完成安装：
+
+[前往 Microsoft Edge 加载项商店安装](https://microsoftedge.microsoft.com/addons/detail/%E9%9B%A8%E8%AF%BE%E5%A0%82%E5%B7%A5%E5%85%B7%E5%8A%A9%E6%89%8B-%E6%89%B9%E9%87%8F%E8%AF%BE%E4%BB%B6%E5%AF%BC%E5%87%BA-%E8%AF%BE%E7%A8%8B%E5%BD%92%E6%A1%A3/imbcjaljdpbeegmdckaoefkalokkhfij)
+
+### 方式二：Chromium 系浏览器手动安装
+
+适用于 Microsoft Edge、Google Chrome、Chromium 等浏览器：
 
 1. 下载并解压项目文件。
-2. 打开 `edge://extensions/`。
-3. 开启“开发人员模式”。
-4. 点击“加载解压缩的扩展”。
+2. 打开浏览器的扩展管理页面（如 Edge 的 `edge://extensions/` 或 Chrome 的 `chrome://extensions/`）。
+3. 开启“开发人员模式”或“开发者模式”。
+4. 点击“加载解压缩的扩展”或“加载已解压的扩展程序”。
 5. 选择包含 `manifest.json` 的仓库目录。
 
-### Google Chrome
-
-1. 下载并解压项目文件。
-2. 打开 `chrome://extensions/`。
-3. 开启“开发者模式”。
-4. 点击“加载已解压的扩展程序”。
-5. 选择包含 `manifest.json` 的仓库目录。
-
-代码更新后，请在扩展管理页面点击“重新加载”。首次导出时，需要选择并授权现有的“雨课堂课件”目录。
+手动安装后，如本地代码发生更新，请在扩展管理页面点击“重新加载”。首次导出时，需要选择并授权现有的“雨课堂课件”目录。
 
 ## 文档
 
