@@ -6,6 +6,7 @@
 
 ```text
 manifest.json
+├── _locales/zh_CN/       默认简体中文资源
 ├── popup.html → popup.js
 └── background.js（Service Worker）
     └── src/
