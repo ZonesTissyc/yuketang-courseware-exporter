@@ -12,13 +12,9 @@
 
 ## 效果预览
 
-### 批量选择课程
-
-<img src="docs/images/course-selection.png" alt="批量选择课程" width="720">
-
-### 筛选并导出课件
-
-<img src="docs/images/courseware-selection.png" alt="筛选并导出课件" width="720">
+| 批量选择课程 | 筛选并导出课件 |
+|:---:|:---:|
+| <img src="docs/images/course-selection.png" alt="批量选择课程" width="480"> | <img src="docs/images/courseware-selection.png" alt="筛选并导出课件" width="480"> |
 
 ## 安装
 
