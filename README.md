@@ -14,11 +14,11 @@
 
 ### 批量选择课程
 
-![批量选择课程](docs/images/course-selection.png)
+<img src="docs/images/course-selection.png" alt="批量选择课程" width="720">
 
 ### 筛选并导出课件
 
-![筛选并导出课件](docs/images/courseware-selection.png)
+<img src="docs/images/courseware-selection.png" alt="筛选并导出课件" width="720">
 
 ## 安装
 
