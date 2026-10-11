@@ -152,6 +152,59 @@ button { -webkit-tap-highlight-color: transparent; }
 .icon-button:disabled { cursor: wait; opacity: 0.55; }
 .icon-button:disabled svg { animation: spin 0.9s linear infinite; }
 
+.lesson-panel { padding-top: 12px; }
+
+.date-range {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 0 16px;
+}
+
+.date-field {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  align-items: center;
+  gap: 5px;
+  padding: 0 9px;
+  border: 1px solid #d7dade;
+  border-radius: 6px;
+  background: #ffffff;
+}
+
+.date-field:focus-within {
+  border-color: #1677ff;
+  box-shadow: 0 0 0 2px rgba(22, 119, 255, 0.12);
+}
+
+.date-field span { flex: 0 0 auto; color: #858a91; font-size: 11px; }
+
+.date-field input {
+  width: 100%;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  outline: 0;
+  color: #25292e;
+  background: transparent;
+  font-size: 11px;
+}
+
+.date-field input::-webkit-calendar-picker-indicator { cursor: pointer; opacity: 0.6; }
+
+.date-separator { flex: 0 0 auto; color: #92979e; font-size: 11px; }
+.date-range .text-button { flex: 0 0 auto; }
+
+.lesson-scope {
+  margin: 10px 16px;
+  color: #555b64;
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.lesson-item { min-height: 44px; }
+
 .list-heading {
   display: flex;
   align-items: center;

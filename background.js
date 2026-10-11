@@ -3,6 +3,25 @@ const STATE_KEY = "exportState";
 
 let cancelRequested = false;
 let running = false;
+let pendingPdfDownload = null;
+
+chrome.downloads.onDeterminingFilename.addListener((downloadItem, suggest) => {
+  const pending = pendingPdfDownload;
+  const isPendingPdf = pending &&
+    (downloadItem.byExtensionId === chrome.runtime.id || downloadItem.url === pending.url) &&
+    downloadItem.url.startsWith("data:application/pdf");
+
+  if (!isPendingPdf) {
+    suggest();
+    return;
+  }
+
+  pending.suggested = true;
+  suggest({
+    filename: pending.filename,
+    conflictAction: "uniquify"
+  });
+});
 
 const initialState = {
   status: "idle",
@@ -135,6 +154,29 @@ async function collectLessons(tabId, course) {
   return lessons;
 }
 
+async function scanLessons(tabId, course) {
+  cancelRequested = false;
+  const lessons = await collectLessons(tabId, {
+    classroomId: course?.classroomId,
+    name: course?.name
+  });
+  return lessons.map((lesson) => ({
+    lessonId: lesson.lessonId,
+    title: lesson.title,
+    createTime: lesson.createTime,
+    date: formatDate(lesson.createTime)
+  }));
+}
+
+function lessonInRange(lesson, dateFrom, dateTo) {
+  if (!dateFrom && !dateTo) return true;
+  const date = formatDate(lesson.createTime);
+  if (!date) return true;
+  if (dateFrom && date < dateFrom) return false;
+  if (dateTo && date > dateTo) return false;
+  return true;
+}
+
 function dedupePresentations(classroomId, rawIds, seenPresentations) {
   const presentationIds = [...new Set(rawIds.filter(Boolean).map(String))];
   const exportableIds = [];
@@ -153,7 +195,9 @@ function dedupePresentations(classroomId, rawIds, seenPresentations) {
   return { exportableIds, duplicateCount };
 }
 
-async function collectJobs(tabId, courses) {
+async function collectJobs(tabId, courses, filters = {}) {
+  const { dateFrom = "", dateTo = "", lessonIds = null } = filters;
+  const allowedLessons = Array.isArray(lessonIds) ? new Set(lessonIds.map(String)) : null;
   const lessons = [];
   for (let index = 0; index < courses.length; index += 1) {
     if (cancelRequested) break;
@@ -163,7 +207,11 @@ async function collectJobs(tabId, courses) {
       label: "正在扫描课堂",
       current: `${index + 1}/${courses.length} ${course.name}`
     });
-    lessons.push(...await collectLessons(tabId, course));
+    for (const lesson of await collectLessons(tabId, course)) {
+      if (allowedLessons && !allowedLessons.has(lesson.lessonId)) continue;
+      if (!lessonInRange(lesson, dateFrom, dateTo)) continue;
+      lessons.push(lesson);
+    }
   }
 
   const jobs = [];
@@ -298,12 +346,57 @@ async function printTabToPdf(tabId, landscape) {
 }
 
 async function downloadPdf(base64, filename) {
-  return chrome.downloads.download({
-    url: `data:application/pdf;base64,${base64}`,
-    filename,
-    saveAs: false,
-    conflictAction: "uniquify"
-  });
+  const url = `data:application/pdf;base64,${base64}`;
+  const pending = { url, filename, suggested: false };
+  pendingPdfDownload = pending;
+
+  try {
+    const downloadId = await chrome.downloads.download({
+      url,
+      filename,
+      saveAs: false,
+      conflictAction: "uniquify"
+    });
+    const actualFilename = await waitForDownloadFilename(downloadId, filename);
+    return { downloadId, filename: actualFilename, forced: pending.suggested };
+  } finally {
+    if (pendingPdfDownload === pending) pendingPdfDownload = null;
+  }
+}
+
+function downloadFilenameMatches(actualFilename, requestedFilename) {
+  const actualParts = String(actualFilename || "").replace(/\\/g, "/").split("/");
+  const requestedParts = String(requestedFilename || "").replace(/\\/g, "/").split("/");
+  const actualName = actualParts.pop() || "";
+  const requestedName = requestedParts.pop() || "";
+  const actualDirectory = actualParts.slice(-requestedParts.length).join("/");
+  const requestedDirectory = requestedParts.join("/");
+
+  if (actualDirectory.toLocaleLowerCase() !== requestedDirectory.toLocaleLowerCase()) return false;
+  if (actualName.toLocaleLowerCase() === requestedName.toLocaleLowerCase()) return true;
+
+  const dot = requestedName.lastIndexOf(".");
+  const stem = dot > 0 ? requestedName.slice(0, dot) : requestedName;
+  const extension = dot > 0 ? requestedName.slice(dot) : "";
+  const escapedStem = stem.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const escapedExtension = extension.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return new RegExp(`^${escapedStem} \\(\\d+\\)${escapedExtension}$`, "i").test(actualName);
+}
+
+async function waitForDownloadFilename(downloadId, requestedFilename) {
+  let actualFilename = "";
+  for (let attempt = 0; attempt < 20; attempt += 1) {
+    const [download] = await chrome.downloads.search({ id: downloadId });
+    actualFilename = download?.filename || actualFilename;
+    if (downloadFilenameMatches(actualFilename, requestedFilename)) return actualFilename;
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  }
+
+  const actualName = actualFilename || "未知";
+  throw new Error(
+    `浏览器未采用课件文件名。期望“${requestedFilename}”，实际“${actualName}”。` +
+    "请检查是否有其他下载管理扩展正在改写文件名。"
+  );
 }
 
 async function exportJob(tabId, job) {
@@ -362,7 +455,7 @@ async function exportJob(tabId, job) {
   }
 }
 
-async function runExport(tabId, courses) {
+async function runExport(tabId, courses, filters = {}) {
   running = true;
   cancelRequested = false;
   await writeState({
@@ -377,7 +470,7 @@ async function runExport(tabId, courses) {
   });
 
   try {
-    const { jobs, duplicateCount } = await collectJobs(tabId, courses);
+    const { jobs, duplicateCount } = await collectJobs(tabId, courses, filters);
     if (cancelRequested) {
       await writeState({ status: "cancelled", label: "已停止" });
       return;
@@ -441,6 +534,17 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     return true;
   }
 
+  if (message?.type === "SCAN_LESSONS") {
+    if (running) {
+      sendResponse({ ok: false, error: "已有导出任务正在运行。" });
+      return false;
+    }
+    scanLessons(message.tabId, message.course)
+      .then((lessons) => sendResponse({ ok: true, lessons }))
+      .catch((error) => sendResponse({ ok: false, error: error.message }));
+    return true;
+  }
+
   if (message?.type === "START_EXPORT") {
     if (running) {
       sendResponse({ ok: false, error: "已有导出任务正在运行。" });
@@ -450,7 +554,11 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
       sendResponse({ ok: false, error: "请至少选择一门课程。" });
       return false;
     }
-    runExport(message.tabId, message.courses);
+    runExport(message.tabId, message.courses, {
+      dateFrom: message.dateFrom || "",
+      dateTo: message.dateTo || "",
+      lessonIds: Array.isArray(message.lessonIds) ? message.lessonIds : null
+    });
     sendResponse({ ok: true });
     return false;
   }

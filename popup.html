@@ -59,6 +59,38 @@
         <div id="no-results" class="empty-state hidden">没有找到匹配的课程</div>
       </section>
 
+      <section id="lesson-panel" class="lesson-panel hidden" aria-labelledby="lesson-heading">
+        <div class="date-range" role="group" aria-label="课件日期范围">
+          <label class="date-field">
+            <span>起始</span>
+            <input id="date-from" type="date" />
+          </label>
+          <span class="date-separator" aria-hidden="true">–</span>
+          <label class="date-field">
+            <span>结束</span>
+            <input id="date-to" type="date" />
+          </label>
+          <button id="date-reset" class="text-button" type="button">不限</button>
+        </div>
+
+        <p id="lesson-scope" class="lesson-scope"></p>
+
+        <div id="lesson-list-heading" class="list-heading">
+          <div>
+            <span id="lesson-heading">课件</span>
+            <span id="lesson-total" class="muted-count"></span>
+          </div>
+          <div id="lesson-selection-actions" class="selection-actions">
+            <button id="lesson-select-all" class="text-button" type="button">全选</button>
+            <span aria-hidden="true">·</span>
+            <button id="lesson-select-none" class="text-button" type="button">清空</button>
+          </div>
+        </div>
+
+        <div id="lesson-list" class="course-list"></div>
+        <div id="lesson-empty" class="empty-state hidden">当前日期范围内没有课件</div>
+      </section>
+
       <section id="loading-panel" class="loading-panel">
         <div class="loading-row"><span></span><span></span></div>
         <div class="loading-row"><span></span><span></span></div>
@@ -83,9 +115,10 @@
 
       <footer class="action-bar">
         <div class="selection-copy">
-          <span>已选择</span>
+          <span id="selection-label">已选择</span>
           <strong id="selected-count">0 门课程</strong>
         </div>
+        <button id="back" class="secondary-button hidden" type="button">返回课程</button>
         <button id="export" class="primary-button" type="button" disabled>导出课件</button>
         <button id="cancel" class="secondary-button hidden" type="button">停止任务</button>
       </footer>
